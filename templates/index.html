@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CTF Helper</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: monospace;
+    }
+
+    body.dark-mode {
+      background-color: #7d7d7d;
+      color: #eee;
+    }
+
+    body:not(.dark-mode) {
+      background-color: #f0f0f0;
+      color: #111;
+    }
+
+    textarea {
+      background-color: #fff;
+      color: #000;
+      border: 1px solid #ccc;
+    }
+
+    body.dark-mode textarea {
+      background-color: #3c3c3c;
+      color: #f0f0f0;
+      border: 1px solid #444;
+    }
+
+    .toggle-button {
+      position: fixed;
+      width: fit-content;
+      top: 10px;
+      right: 10px;
+      padding: 5px 10px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+
+    body.dark-mode .toggle-button {
+      background-color: #0056b3;
+    }
+
+    nav {
+      background-color: #222;
+      padding: 1em;
+      display: flex;
+      gap: 1em;
+    }
+
+    nav a {
+      color: #0f0;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    nav a:hover {
+      text-decoration: underline;
+    }
+
+    #content {
+      padding: 1em;
+      display: flex;
+      height: 90vh;
+      overflow: hidden;
+      width: 90vw;
+    }
+  </style>
+</head>
+<body class="dark-mode">
+
+<nav>
+  <a onclick="loadSection('shells')">Shells</a>
+  <a onclick="loadSection('tools')">Tools</a>
+  <a onclick="loadSection('utilities')">Utilities</a>
+  <a onclick="loadSection('Toolkit')">Toolkit</a>
+  <a onclick="loadSection('chat')">Chat</a>
+  <a onclick="loadSection('Configuration')">Configuration</a>
+  
+  <button class="toggle-button" id="toggle-mode">Clear</button>
+</nav>
+
+<div id="content">
+  <h2>Welcome to CTF Helper</h2>
+</div>
+
+
+
+<script>
+function loadSection(section) {
+  if (section === 'shells') {
+    fetch('/shells')
+      .then(response => response.text())
+      .then(html => {
+        const contentDiv = document.getElementById('content');
+        contentDiv.innerHTML = html;
+
+        const scriptTag = contentDiv.querySelector('script');
+        if (scriptTag) {
+          const newScript = document.createElement('script');
+          newScript.textContent = scriptTag.textContent;
+          document.body.appendChild(newScript);
+        }
+
+        loadShellIps();
+        initShells();
+      })
+      .catch(error => {
+        console.error('Error loading shells:', error);
+        document.getElementById('content').innerHTML = '<p>Error loading shells page.</p>';
+      });
+
+  } else if (section === 'utilities') {
+    document.getElementById('content').innerHTML = `
+      <h2>Utilities</h2>
+      <p>Base64 encoder/decoder, hex converter, and more.</p>
+    `;
+  } else if (section === 'tools') {
+    fetch('/tools')
+      .then(response => response.text())
+      .then(html => {
+        const contentDiv = document.getElementById('content');
+        contentDiv.innerHTML = html;
+
+        const scriptTag = contentDiv.querySelector('script');
+        if (scriptTag) {
+          const newScript = document.createElement('script');
+          newScript.textContent = scriptTag.textContent;
+          document.body.appendChild(newScript);
+        }
+
+        initTools();
+      })
+      .catch(error => {
+        console.error('Error loading tools:', error);
+        document.getElementById('content').innerHTML = '<p>Error loading tools page.</p>';
+      });
+  }
+}
+
+document.getElementById('toggle-mode').onclick = () => {
+  document.body.classList.toggle('dark-mode');
+  const isDarkMode = document.body.classList.contains('dark-mode');
+  document.getElementById('toggle-mode').textContent = isDarkMode ? 'Clear' : 'Dark';
+};
+</script>
+
+
+</body>
+</html>
+

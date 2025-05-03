@@ -1,0 +1,576 @@
+
+<style>
+  #shells-wrapper {
+    display: flex;
+    height: 80vh;
+    width: 100%;
+    font-family: monospace;
+    background: #111;
+    color: #0f0;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  #shell-controls {
+    width: 20%;
+    min-width: 220px;
+    padding: 10px;
+    background: #222;
+    border-right: 1px solid #444;
+    box-sizing: border-box;
+  }
+
+  #shell-area {
+    flex: 1;
+    padding: 20px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #shell-tabs {
+    display: flex;
+    margin-bottom: 10px;
+  }
+
+  .tab {
+    padding: 10px 15px;
+    cursor: pointer;
+    background: #333;
+    color: #0f0;
+    margin-right: 5px;
+    font-size: 14px;
+    border: none;
+  }
+
+  .tab.active {
+    background: #0f0;
+    color: #111;
+  }
+
+  .close-btn {
+    color: #111;
+    margin-left: 8px;
+    cursor: pointer;
+  }
+
+  #shell-output {
+    flex: 1;
+    background: #000;
+    border: 1px solid #444;
+    padding: 10px;
+    margin-bottom: 10px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+
+  #shell-input {
+    background: #333;
+    border: none;
+    color: #0f0;
+    padding: 10px;
+    font-size: 14px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  select, input, button {
+    background: #333;
+    border: none;
+    font-family: monospace;
+    margin: 5px 0;
+    padding: 5px 10px;
+    box-sizing: border-box;
+  }
+
+  .message-info {
+    color: red;
+    display: block;
+  }
+
+  .message-output {
+    color: white;
+    display: block;
+  }
+
+  .btn-blue {
+    color: #00f;
+  }
+
+  .btn-yellow {
+    color: #ff0;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  #download-popup {
+    background: #222;
+    color: #0f0;
+    border: 2px solid #444;
+    padding: 15px;
+    position: absolute;
+    top: 30%;
+    left: 35%;
+    z-index: 999;
+    display: none;
+    min-width: 300px;
+    resize: both;
+    overflow: auto;
+  }
+
+  #download-popup h3 {
+    border-bottom: 1px solid #555;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    cursor: move;
+  }
+
+  .popup-listing div {
+    margin: 3px 0;
+    cursor: pointer;
+  }
+
+  .popup-actions {
+    margin-top: 15px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .popup-actions button {
+    color: #0f0;
+  }
+</style>
+
+
+<div id="shells-wrapper">
+  <div id="shell-controls">
+    <label for="listener-ip">IP:</label>
+    <select id="listener-ip" style="width: 150px;" class="ip-select"></select>
+
+    <label for="listener-port">Port:</label>
+    <input type="number" style="width: 80px;" id="listener-port" placeholder="4444" value="4444">
+
+    <div style="display: flex; justify-content: center; gap: 10px; margin-top: 10px;">
+      <button id="start-listener">Start Listener</button>
+      <button id="stop-listener">Stop Listener</button>
+    </div>
+
+    <div style="display: flex; justify-content: center; gap: 10px; margin-top: 10px;">
+      <button id="upload-btn" class="btn-blue">Upload</button>
+      <button id="download-btn" class="btn-yellow">Download</button>
+    </div>
+  </div>
+
+  <div id="shell-area">
+    <div id="shell-tabs">
+      <button class="tab active" data-tab="0" onclick="switchTab(0)">shell <span class="close-btn" onclick="closeTab(0)">&times;</span></button>
+      <button id="add-tab">+</button>
+    </div>
+
+    <div id="shell-output"></div>
+    <input type="text" id="shell-input" placeholder="Enter command and press Enter">
+  </div>
+</div>
+
+<div id="download-popup">
+  <h3>Explorador remoto</h3>
+  <div id="remote-file-list" class="popup-listing"></div>
+  <div class="popup-actions">
+    <button onclick="cancelDownload()">Cancelar</button>
+    <button onclick="performDownloadSelection()">Descargar</button>
+  </div>
+</div>
+
+
+<script>
+let currentTab = 0;
+
+
+let shells;
+try {
+  const stored = localStorage.getItem("shells");
+  shells = stored ? JSON.parse(stored) : [{ port: null, output: "" }];
+} catch (e) {
+  shells = [{ port: null, output: "" }];
+}
+
+
+const commandList = ['upload', 'download', 'sudo', 'clear', 'exit'];
+const inputField = document.getElementById('shell-input');
+
+inputField.addEventListener('input', function () {
+  const value = inputField.value.toLowerCase();
+  const match = commandList.find(cmd => cmd.startsWith(value));
+  if (match && match !== value) {
+    inputField.value = match;
+    inputField.setSelectionRange(value.length, match.length);
+  }
+});
+
+
+
+
+function persistShells() {
+  localStorage.setItem("shells", JSON.stringify(shells));
+}
+
+
+
+
+
+function makePopupDraggable(popup) {
+  let isDragging = false;
+  let offsetX = 0, offsetY = 0;
+
+  const header = popup.querySelector('h3');
+  header.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    offsetX = e.clientX - popup.offsetLeft;
+    offsetY = e.clientY - popup.offsetTop;
+    document.addEventListener('mousemove', drag);
+    document.addEventListener('mouseup', () => isDragging = false);
+  });
+
+  function drag(e) {
+    if (!isDragging) return;
+    popup.style.left = `${e.clientX - offsetX}px`;
+    popup.style.top = `${e.clientY - offsetY}px`;
+  }
+}
+
+makePopupDraggable(document.getElementById('download-popup'));
+
+function appendOutput(text, isInfo = false) {
+  if (typeof text === 'object') {
+    text = text.output || JSON.stringify(text);
+  }
+  const output = document.getElementById('shell-output');
+  const span = document.createElement('span');
+  span.textContent = text + "\n";
+  span.className = isInfo ? 'message-info' : 'message-output';
+  output.appendChild(span);
+  output.scrollTop = output.scrollHeight;
+  shells[currentTab].output += text + "\n";
+  persistShells();
+}
+
+function updateTabTitles() {
+  document.querySelectorAll('.tab').forEach((tab, idx) => {
+    if (!tab.id || tab.id !== 'add-tab') {
+      tab.innerHTML = `shell <span class="close-btn" onclick="closeTab(${idx})">&times;</span>`;
+      tab.classList.toggle('active', idx === currentTab);
+      tab.setAttribute('onclick', `switchTab(${idx})`);
+    }
+  });
+}
+
+function switchTab(index) {
+  currentTab = index;
+  const output = document.getElementById('shell-output');
+  output.innerHTML = '';
+  shells[currentTab].output.split("\n").forEach(line => line && appendOutput(line, line.startsWith('[INFO]') || line.startsWith('[ERROR]')));
+  updateTabTitles();
+}
+
+function closeTab(index) {
+  if (shells[index].port) {
+    fetch('/stop_listener');
+  }
+  shells.splice(index, 1);
+  const tabs = document.querySelectorAll('.tab');
+  if (tabs[index]) tabs[index].remove();
+  if (currentTab === index) {
+    currentTab = Math.max(0, currentTab - 1);
+  }
+  persistShells();
+  switchTab(currentTab);
+}
+
+function createNewTab() {
+  const index = shells.length;
+  const tabButton = document.createElement('button');
+  tabButton.classList.add('tab');
+  tabButton.innerHTML = `shell <span class="close-btn" onclick="closeTab(${index})">&times;</span>`;
+  tabButton.setAttribute('onclick', `switchTab(${index})`);
+  tabButton.dataset.tab = index;
+
+  document.getElementById('shell-tabs').insertBefore(tabButton, document.getElementById('add-tab'));
+  shells.push({ port: null, output: "" });
+  persistShells();
+  switchTab(index);
+}
+
+document.getElementById('add-tab').onclick = createNewTab;
+
+document.getElementById('start-listener').onclick = () => {
+  const port = document.getElementById('listener-port').value;
+  if (!port) return alert("Enter a port.");
+
+  appendOutput(`[INFO] Listening on port ${port}`, true);
+  fetch(`/start_listener/${port}`)
+    .then(res => res.json())
+    .then(data => {
+      shells[currentTab].port = port;
+      appendOutput(`[INFO] Shell received`, true);
+      persistShells();
+    });
+};
+
+document.getElementById('stop-listener').onclick = () => {
+  fetch(`/stop_listener`).then(res => res.json()).then(data => {
+    appendOutput("[INFO] Listener stopped", true);
+    shells[currentTab].port = null;
+    persistShells();
+  });
+};
+
+
+
+document.getElementById('shell-input').addEventListener('keypress', e => {
+  if (e.key === 'Enter') {
+    const cmd = e.target.value;
+    e.target.value = "";
+    appendOutput("> " + cmd);
+
+    fetch('/send_command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: cmd })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.type === "file") {
+        appendOutput(`[INFO] Archivo ${data.path} descargado.`, true);
+        appendOutput(`[INFO] MD5 local: ${data.local_md5}`, true);
+        appendOutput(`[INFO] MD5 remoto: ${data.remote_md5}`, true);
+
+        if (data.success) {
+          appendOutput("✔️ Integridad verificada: los hashes coinciden.", false);
+        } else {
+          appendOutput("❌ Advertencia: los hashes NO coinciden. Puede haber corrupción en la transferencia.", true);
+        }
+      }
+
+      else if (data.type === "output") {
+        appendOutput(data.output);
+      }
+
+      else {
+        appendOutput("[ERROR] Tipo de respuesta desconocido.", true);
+      }
+    })
+    .catch(err => appendOutput('[ERROR] Command failed', true));
+  }
+});
+
+
+
+(async () => {
+
+  // Restore persisted shells on reload
+  const tabs = document.getElementById('shell-tabs');
+  for (let i = 1; i < shells.length; i++) {
+    const tabButton = document.createElement('button');
+    tabButton.classList.add('tab');
+    tabButton.innerHTML = `shell <span class="close-btn" onclick="closeTab(${i})">&times;</span>`;
+    tabButton.setAttribute('onclick', `switchTab(${i})`);
+    tabButton.dataset.tab = i;
+    tabs.insertBefore(tabButton, document.getElementById('add-tab'));
+  }
+  switchTab(currentTab);
+})();
+
+
+async function loadShellIps() {
+  const res = await fetch('/ips');
+  if (!res.ok) return;
+
+  const text = await res.text();
+  try {
+    const ips = JSON.parse(text);
+    const select = document.getElementById('listener-ip');
+    const portInput = document.getElementById('listener-port');
+
+    select.innerHTML = "";
+
+    for (const ip of ips) {
+      const opt = document.createElement('option');
+      opt.value = ip;
+      opt.textContent = ip;
+      select.appendChild(opt);
+    }
+
+    // Restaurar IP si estaba guardada
+    const savedIp = localStorage.getItem('selected-ip');
+    if (savedIp && ips.includes(savedIp)) {
+      select.value = savedIp;
+    }
+
+    // Restaurar puerto si estaba guardado
+    const savedPort = localStorage.getItem('selected-port');
+    if (savedPort) {
+      portInput.value = savedPort;
+    }
+
+    // Guardar cambios
+    select.addEventListener('change', () => {
+      localStorage.setItem('selected-ip', select.value);
+    });
+
+    portInput.addEventListener('input', () => {
+      localStorage.setItem('selected-port', portInput.value);
+    });
+
+  } catch (e) {
+    console.error("Failed to parse JSON:", text);
+  }
+}
+
+
+
+document.getElementById('upload-btn').addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+
+  input.addEventListener('change', async () => {
+    if (!input.files.length) return;
+    const file = input.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch('/send_command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: `upload ${file.name}` })
+    });
+
+    const { output } = await res.json();
+    appendOutput(output, true);
+    input.remove();
+  });
+
+  input.click();
+});
+
+document.getElementById('download-btn').addEventListener('click', async () => {
+  const res = await fetch('/send_command', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'ls -p' })
+  });
+  const data = await res.json();
+  const entries = data.output.trim().split('\n').filter(Boolean);
+  const list = document.getElementById('remote-file-list');
+  list.innerHTML = '';
+
+  const addEntry = (name) => {
+    const div = document.createElement('div');
+    div.textContent = name;
+    div.onclick = () => {
+      if (name === '..') {
+        fetch('/send_command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: 'cd .. && ls -p' })
+        }).then(r => r.json()).then(updateDownloadList);
+      } else if (name.endsWith('/')) {
+        fetch('/send_command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: `cd ${name.replace('/', '')} && ls -p` })
+        }).then(r => r.json()).then(updateDownloadList);
+      } else {
+        list.querySelectorAll('div').forEach(el => el.style.background = '');
+        div.style.background = '#333';
+        list.dataset.selected = name;
+      }
+    };
+    list.appendChild(div);
+  }
+
+  const updateDownloadList = (result) => {
+    //const files = result.output.trim().split('\n');
+    const files = result.output.trim().split('\n').filter(line => !line.includes('cd') && !line.includes('ls'));
+
+    list.innerHTML = '';
+    ['.', '..', ''].concat(files).forEach(f => f && addEntry(f));
+  }
+
+  updateDownloadList(data);
+  document.getElementById('download-popup').style.display = 'block';
+});
+
+function cancelDownload() {
+  document.getElementById('download-popup').style.display = 'none';
+}
+
+
+function performDownloadSelection() {
+  const file = document.getElementById('remote-file-list').dataset.selected;
+  if (!file) return;
+
+  if (file === '.' || file === '..' || file.endsWith('/')) {
+    appendOutput("[INFO] Selecciona un archivo válido.", true);
+    return;
+  }
+
+  fetch('/send_command', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: `download ${file}` })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.type === "file") {
+      appendOutput(`[INFO] Archivo ${data.path} descargado.`, true);
+      appendOutput(`[INFO] MD5 local: ${data.local_md5}`, true);
+      appendOutput(`[INFO] MD5 remoto: ${data.remote_md5}`, true);
+
+      if (data.success) {
+        appendOutput("✔️ Integridad verificada: los hashes coinciden.", false);
+      } else {
+        appendOutput("❌ Advertencia: los hashes NO coinciden. Puede haber corrupción en la transferencia.", true);
+      }
+
+    } else if (data.type === "output") {
+      appendOutput(data.output);
+    } else {
+      appendOutput("[ERROR] Tipo de respuesta desconocido.", true);
+    }
+  })
+  .catch(() => {
+    appendOutput("[ERROR] No se pudo completar la descarga.", true);
+  })
+  .finally(() => {
+    cancelDownload();
+  });
+}
+
+
+async function initShells() {
+  const res = await fetch('/ips');
+  const ips = await res.json();
+  const select = document.getElementById('shell-ip');
+  for (const ip of ips) {
+    const option = document.createElement('option');
+    option.value = ip;
+    option.textContent = ip;
+    select.appendChild(option);
+  }
+}
+
+
+document.addEventListener('DOMContentLoaded', () => {
+  initShells();
+});
+
+
+
+
+
+</script>
+
