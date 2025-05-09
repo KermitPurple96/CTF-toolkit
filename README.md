@@ -42,7 +42,7 @@ python3 shell.py 443
 ```
 ![image](https://github.com/user-attachments/assets/67107b56-050a-4de0-ac84-9be2bed95be6)
 
-3. Load the script on Target Machine
+4. Load the script on Target Machine (https://github.com/Daniel10Barredo/OSCP_AuxReconTools)
 
 For Linux
 ```bash
