@@ -17,12 +17,16 @@ from validators import (
     validate_content_size,
     sanitize_log_message
 )
+from security_headers import configure_security
 
 # Initialize logger
 logger = get_logger('flask_app')
 
 
 app = Flask(__name__)
+
+# Configure security headers
+configure_security(app, use_https=False)
 
 # Configuration
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
