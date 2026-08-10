@@ -7,6 +7,7 @@ import re
 import signal
 import hashlib
 import threading
+import shlex
 
 
 TOOLS_FOLDER = 'tools'
@@ -103,7 +104,9 @@ def get_local_md5(local_file):
 
 def get_remote_md5(path):
     try:
-        conn.sendline(f"md5sum {path}".encode())
+        # Security: Properly escape the path
+        escaped_path = shlex.quote(path)
+        conn.sendline(f"md5sum {escaped_path}".encode())
         conn.recvline(timeout=0.5)
         result = clean_ansi(conn.recvrepeat(1).decode(errors='ignore'))
         match = re.search(r'^([a-fA-F0-9]{32})', result)
@@ -113,11 +116,11 @@ def get_remote_md5(path):
         return None
 
 def send_command(cmd):
-    
+
     if cmd.startswith("upload "):
         path = cmd.split(" ", 1)[1]
         upload_file(path)
-        local_md5 = get_local_md5(local_file)
+        local_md5 = get_local_md5(path)  # Fixed: was 'local_file'
         remote_md5 = get_remote_md5(os.path.basename(path))
 
         return {
@@ -155,7 +158,9 @@ def upload_file(file_path):
         with open(file_path, "rb") as f:
             file_data = base64.b64encode(f.read()).decode()
 
-        conn.sendline(f"echo {file_data} | base64 -d > {os.path.basename(file_path)}".encode())
+        # Security: Properly escape filename
+        remote_name = shlex.quote(os.path.basename(file_path))
+        conn.sendline(f"echo {file_data} | base64 -d > {remote_name}".encode())
         log.info(f"Subiendo {file_path}")
 
         local_md5 = get_local_md5(file_path)
@@ -177,7 +182,9 @@ def download_file(file_path):
     try:
         local_file = os.path.join(DOWNLOAD_FOLDER, os.path.basename(file_path))
 
-        conn.sendline(f"base64 {file_path}".encode())
+        # Security: Properly escape path
+        escaped_path = shlex.quote(file_path)
+        conn.sendline(f"base64 {escaped_path}".encode())
         time.sleep(1)  # Le damos tiempo a la shell remota
 
         raw_data = conn.recvrepeat(3)  # Ajusta si necesitas más tiempo

@@ -1,6 +1,8 @@
-from listen_manager import *
+from listen_manager import start_listener, detect_remote_os, get_clean_response, download_file, upload_file, conn, sigint_handler
 import sys
-from pwn import *
+import signal
+import threading
+from pwn import log
 
 
 if __name__ == "__main__":

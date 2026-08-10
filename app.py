@@ -1,11 +1,15 @@
 from flask import Flask, jsonify, request, send_from_directory, abort, render_template
 import os
 import netifaces as ni
-from listen_manager import *
+from listen_manager import start_listener, stop_listener, send_command
 
 
 app = Flask(__name__)
 
+# Configuration
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
+MAX_CLIPBOARD_SIZE = 10 * 1024 * 1024  # 10MB limit
+app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 
 TOOLS_FOLDER = 'tools'
 UPLOAD_FOLDER = 'uploads'
@@ -81,23 +85,57 @@ def tools():
 @app.route('/read_tool', methods=['POST'])
 def read_tool():
     filename = request.form.get('filename')
+
+    # Security: Prevent path traversal
+    if not filename or '..' in filename or filename.startswith('/'):
+        return jsonify({"error": "Invalid filename"}), 400
+
     filepath = os.path.join(TOOLS_FOLDER, filename)
-    if os.path.exists(filepath):
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+
+    # Security: Ensure within TOOLS_FOLDER
+    abs_tools = os.path.abspath(TOOLS_FOLDER) + os.sep
+    abs_filepath = os.path.abspath(filepath)
+    if not abs_filepath.startswith(abs_tools):
+        return jsonify({"error": "Invalid path"}), 400
+
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
         return jsonify({"content": content})
-    return jsonify({"error": "File not found"}), 404
+    except FileNotFoundError:
+        return jsonify({"error": "File not found"}), 404
+    except PermissionError:
+        return jsonify({"error": "Permission denied"}), 403
+    except Exception as e:
+        return jsonify({"error": "Internal error"}), 500
 
 @app.route('/save_tool', methods=['POST'])
 def save_tool():
     filename = request.form.get('filename')
     content = request.form.get('content')
+
+    # Security: Prevent path traversal
+    if not filename or '..' in filename or filename.startswith('/'):
+        return jsonify({"error": "Invalid filename"}), 400
+
     filepath = os.path.join(TOOLS_FOLDER, filename)
-    if os.path.exists(filepath):
-        with open(filepath, 'w', encoding='utf-8', errors='ignore') as f:
+
+    # Security: Ensure within TOOLS_FOLDER
+    abs_tools = os.path.abspath(TOOLS_FOLDER) + os.sep
+    abs_filepath = os.path.abspath(filepath)
+    if not abs_filepath.startswith(abs_tools):
+        return jsonify({"error": "Invalid path"}), 400
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
         return jsonify({"status": "saved"})
-    return jsonify({"error": "File not found"}), 404
+    except FileNotFoundError:
+        return jsonify({"error": "File not found"}), 404
+    except PermissionError:
+        return jsonify({"error": "Permission denied"}), 403
+    except Exception as e:
+        return jsonify({"error": "Internal error"}), 500
 
 
 @app.route('/files', methods=['GET'])
@@ -107,20 +145,38 @@ def list_files():
 
 @app.route('/files/<filename>', methods=['GET', 'PUT'])
 def handle_file(filename):
+    # Security: Prevent path traversal
+    if not filename or '..' in filename or filename.startswith('/'):
+        return jsonify({"error": "Invalid filename"}), 400
+
     filepath = os.path.join(TOOLS_FOLDER, filename)
-    
+
+    # Security: Ensure within TOOLS_FOLDER
+    abs_tools = os.path.abspath(TOOLS_FOLDER) + os.sep
+    abs_filepath = os.path.abspath(filepath)
+    if not abs_filepath.startswith(abs_tools):
+        return jsonify({"error": "Invalid path"}), 400
+
     if request.method == 'GET':
-        if not os.path.isfile(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return jsonify({"content": content})
+        except FileNotFoundError:
             return jsonify({"error": "File not found"}), 404
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return jsonify({"content": content})
+        except Exception as e:
+            return jsonify({"error": "Internal error"}), 500
 
     if request.method == 'PUT':
-        data = request.get_json()
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(data['content'])
-        return jsonify({"message": "File saved"})
+        try:
+            data = request.get_json()
+            if not data or 'content' not in data:
+                return jsonify({"error": "No content provided"}), 400
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(data['content'])
+            return jsonify({"message": "File saved"})
+        except Exception as e:
+            return jsonify({"error": "Internal error"}), 500
 
 @app.route('/clipboards', methods=['GET'])
 def get_clipboards():
@@ -130,8 +186,15 @@ def get_clipboards():
 def update_clipboard(index):
     if index < 0 or index >= len(clipboards):
         return jsonify({"error": "Invalid clipboard index"}), 400
+
     data = request.get_json()
-    clipboards[index] = data.get('content', '')
+    content = data.get('content', '')
+
+    # Security: Limit clipboard size
+    if len(content) > MAX_CLIPBOARD_SIZE:
+        return jsonify({"error": "Clipboard content too large"}), 413
+
+    clipboards[index] = content
     return jsonify({"message": "Clipboard updated"})
 
 @app.route('/ips', methods=['GET'])
@@ -150,10 +213,20 @@ def shells():
 
 @app.route("/start_listener/<int:port>")
 def start_listener_route(port):
-    conn, ok = start_listener(port)
-    ip = conn.rhost
-    #return {"status": "started" if success else "error"}
-    return {"status": "started", "ip": ip}
+    # Security: Validate port range (avoid privileged ports)
+    if port < 1024 or port > 65535:
+        return jsonify({"error": "Invalid port: must be between 1024-65535"}), 400
+
+    try:
+        conn, ok = start_listener(port)
+
+        if not ok or conn is None:
+            return jsonify({"error": "Failed to start listener"}), 500
+
+        ip = conn.rhost
+        return jsonify({"status": "started", "ip": ip}), 200
+    except Exception as e:
+        return jsonify({"error": f"Error starting listener: {str(e)}"}), 500
 
 
 @app.route("/send_command", methods=["POST"])
@@ -181,5 +254,13 @@ def stop_listener_route():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Security: Never enable debug mode by default in production
+    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
+    port = int(os.environ.get('FLASK_PORT', '5000'))
+    host = os.environ.get('FLASK_HOST', '0.0.0.0')
+
+    if debug_mode:
+        log.warning("⚠️  Debug mode is ENABLED - do not use in production!")
+
+    app.run(host=host, port=port, debug=debug_mode)
 
