@@ -9,6 +9,14 @@ from exceptions import (
     InvalidInputError
 )
 from logging_config import get_logger
+from validators import (
+    validate_filename,
+    validate_path_in_directory,
+    validate_port,
+    validate_clipboard_index,
+    validate_content_size,
+    sanitize_log_message
+)
 
 # Initialize logger
 logger = get_logger('flask_app')
@@ -40,26 +48,19 @@ def index():
 @app.route('/upload/<path:filename>', methods=['PUT', 'POST'])
 def upload_file(filename):
     try:
-        # Security: Prevent path traversal attacks
-        if '..' in filename or filename.startswith('/'):
-            logger.warning(f"Path traversal attempt detected: {filename} from {request.remote_addr}")
-            raise PathTraversalError(f"Path traversal attempt detected: {filename}")
-
-        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        # Security: Validate filename
+        validated_filename = validate_filename(filename)
+        filepath = os.path.join(UPLOAD_FOLDER, validated_filename)
 
         # Security: Ensure the final path is within UPLOAD_FOLDER
-        abs_upload = os.path.abspath(UPLOAD_FOLDER) + os.sep
-        abs_filepath = os.path.abspath(filepath)
-        if not abs_filepath.startswith(abs_upload):
-            logger.warning(f"Path outside allowed directory: {filename} from {request.remote_addr}")
-            raise PathTraversalError(f"Path outside allowed directory: {filename}")
+        validate_path_in_directory(filepath, UPLOAD_FOLDER)
 
         if request.method == 'PUT':
             # PUT: sube datos "raw"
             with open(filepath, 'wb') as f:
                 f.write(request.data)
-            logger.info(f"File {filename} uploaded via PUT from {request.remote_addr}")
-            return f'File {filename} uploaded via PUT.', 200
+            logger.info(f"File {sanitize_log_message(validated_filename)} uploaded via PUT from {request.remote_addr}")
+            return f'File {validated_filename} uploaded via PUT.', 200
 
         elif request.method == 'POST':
             # POST: maneja multipart/form-data
@@ -69,36 +70,31 @@ def upload_file(filename):
             if file.filename == '':
                 return 'No selected file', 400
             file.save(filepath)
-            logger.info(f"File {filename} uploaded via POST from {request.remote_addr}")
-            return f'File {filename} uploaded via POST.', 200
+            logger.info(f"File {sanitize_log_message(validated_filename)} uploaded via POST from {request.remote_addr}")
+            return f'File {validated_filename} uploaded via POST.', 200
 
-    except PathTraversalError as e:
+    except (PathTraversalError, InvalidInputError) as e:
+        logger.warning(f"Validation error in upload: {sanitize_log_message(str(e))} from {request.remote_addr}")
         abort(400, str(e))
 
 @app.route('/download/<path:filename>', methods=['GET'])
 def download_file(filename):
     try:
-        # Security: Prevent path traversal attacks
-        if '..' in filename or filename.startswith('/'):
-            logger.warning(f"Path traversal attempt detected in download: {filename} from {request.remote_addr}")
-            raise PathTraversalError(f"Path traversal attempt detected: {filename}")
-
-        filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+        # Security: Validate filename
+        validated_filename = validate_filename(filename)
+        filepath = os.path.join(DOWNLOAD_FOLDER, validated_filename)
 
         # Security: Ensure the final path is within DOWNLOAD_FOLDER
-        abs_download = os.path.abspath(DOWNLOAD_FOLDER) + os.sep
-        abs_filepath = os.path.abspath(filepath)
-        if not abs_filepath.startswith(abs_download):
-            logger.warning(f"Path outside allowed directory in download: {filename} from {request.remote_addr}")
-            raise PathTraversalError(f"Path outside allowed directory: {filename}")
+        validate_path_in_directory(filepath, DOWNLOAD_FOLDER)
 
-        logger.info(f"File {filename} downloaded by {request.remote_addr}")
-        return send_from_directory(DOWNLOAD_FOLDER, filename, as_attachment=True)
+        logger.info(f"File {sanitize_log_message(validated_filename)} downloaded by {request.remote_addr}")
+        return send_from_directory(DOWNLOAD_FOLDER, validated_filename, as_attachment=True)
 
-    except PathTraversalError as e:
+    except (PathTraversalError, InvalidInputError) as e:
+        logger.warning(f"Validation error in download: {sanitize_log_message(str(e))} from {request.remote_addr}")
         abort(400, str(e))
     except FileNotFoundError:
-        logger.warning(f"File not found for download: {filename}")
+        logger.warning(f"File not found for download: {sanitize_log_message(filename)}")
         abort(404)
 
 
@@ -210,23 +206,22 @@ def get_clipboards():
 @app.route('/clipboards/<int:index>', methods=['PUT'])
 def update_clipboard(index):
     try:
-        if index < 0 or index >= len(clipboards):
-            raise InvalidInputError(f"Invalid clipboard index: {index}")
+        # Validate clipboard index
+        validated_index = validate_clipboard_index(index, len(clipboards))
 
         data = request.get_json()
         content = data.get('content', '')
 
-        # Security: Limit clipboard size
-        if len(content) > MAX_CLIPBOARD_SIZE:
-            raise FileSizeLimitError(f"Clipboard content size {len(content)} exceeds limit {MAX_CLIPBOARD_SIZE}")
+        # Security: Validate content size
+        validated_content = validate_content_size(content, MAX_CLIPBOARD_SIZE, "clipboard")
 
-        clipboards[index] = content
+        clipboards[validated_index] = validated_content
+        logger.info(f"Clipboard {validated_index} updated from {request.remote_addr}")
         return jsonify({"message": "Clipboard updated"})
 
     except InvalidInputError as e:
+        logger.warning(f"Invalid clipboard update: {str(e)} from {request.remote_addr}")
         return jsonify({"error": str(e)}), 400
-    except FileSizeLimitError as e:
-        return jsonify({"error": str(e)}), 413
 
 @app.route('/ips', methods=['GET'])
 def get_ips():
@@ -245,29 +240,28 @@ def shells():
 @app.route("/start_listener/<int:port>")
 def start_listener_route(port):
     try:
-        # Security: Validate port range (avoid privileged ports)
-        if port < 1024 or port > 65535:
-            logger.warning(f"Invalid port {port} requested from {request.remote_addr}")
-            raise InvalidInputError(f"Invalid port {port}: must be between 1024-65535")
+        # Security: Validate port range
+        validated_port = validate_port(port)
 
-        logger.info(f"Starting listener on port {port}")
-        conn, ok = start_listener(port)
+        logger.info(f"Starting listener on port {validated_port}")
+        conn, ok = start_listener(validated_port)
 
         if not ok or conn is None:
-            logger.error(f"Failed to start listener on port {port}")
+            logger.error(f"Failed to start listener on port {validated_port}")
             return jsonify({"error": "Failed to start listener"}), 500
 
         ip = conn.rhost
-        logger.info(f"Listener started on port {port}, connection from {ip}")
+        logger.info(f"Listener started on port {validated_port}, connection from {ip}")
         return jsonify({"status": "started", "ip": ip}), 200
 
     except InvalidInputError as e:
+        logger.warning(f"Invalid port validation: {str(e)} from {request.remote_addr}")
         return jsonify({"error": str(e)}), 400
     except ListenerStartError as e:
-        logger.error(f"ListenerStartError on port {port}: {e}")
+        logger.error(f"ListenerStartError: {e}")
         return jsonify({"error": f"Failed to start listener: {str(e)}"}), 500
     except Exception as e:
-        logger.exception(f"Unexpected error starting listener on port {port}")
+        logger.exception(f"Unexpected error starting listener")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
