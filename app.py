@@ -19,6 +19,7 @@ from validators import (
 )
 from security_headers import configure_security
 from config import Config
+from rate_limiter import rate_limit, strict_limiter, auth_limiter, get_rate_limit_status
 
 # Initialize configuration
 Config.init_app()
@@ -51,6 +52,7 @@ def index():
     return render_template('index.html')
 
 @app.route('/upload/<path:filename>', methods=['PUT', 'POST'])
+@rate_limit(strict_limiter)  # Limit uploads to prevent abuse
 def upload_file(filename):
     try:
         # Security: Validate filename
@@ -243,6 +245,7 @@ def shells():
     return render_template("shells.html")
 
 @app.route("/start_listener/<int:port>")
+@rate_limit(auth_limiter)  # Strictly limit listener starts
 def start_listener_route(port):
     try:
         # Security: Validate port range
@@ -271,6 +274,7 @@ def start_listener_route(port):
 
 
 @app.route("/send_command", methods=["POST"])
+@rate_limit(strict_limiter)  # Limit command execution
 def send_command_route():
     cmd = request.json.get("command")
     result = send_command(cmd)
@@ -290,6 +294,46 @@ def send_command_route():
 def stop_listener_route():
     stop_listener()
     return {"status": "stopped"}
+
+
+@app.route("/api/rate_limit_status")
+def rate_limit_status():
+    """Get current rate limit status for the requesting IP."""
+    ip = request.remote_addr
+    status = get_rate_limit_status(ip)
+    return jsonify(status)
+
+
+@app.route("/health")
+def health_check():
+    """Health check endpoint for monitoring."""
+    import sys
+
+    health_status = {
+        "status": "healthy",
+        "version": "1.0.0",
+        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "directories": {
+            "tools": os.path.exists(TOOLS_FOLDER),
+            "uploads": os.path.exists(UPLOAD_FOLDER),
+            "downloads": os.path.exists(DOWNLOAD_FOLDER)
+        },
+        "configuration": {
+            "debug_mode": Config.FLASK_DEBUG,
+            "https_enabled": Config.USE_HTTPS,
+            "max_file_size_mb": Config.MAX_FILE_SIZE / (1024 * 1024),
+        }
+    }
+
+    # Check if all directories exist
+    all_dirs_ok = all(health_status["directories"].values())
+
+    if not all_dirs_ok:
+        health_status["status"] = "degraded"
+        logger.warning("Health check: Some directories are missing")
+
+    status_code = 200 if health_status["status"] == "healthy" else 503
+    return jsonify(health_status), status_code
 
 
 if __name__ == '__main__':
