@@ -8,6 +8,10 @@ from exceptions import (
     ListenerStartError,
     InvalidInputError
 )
+from logging_config import get_logger
+
+# Initialize logger
+logger = get_logger('flask_app')
 
 
 app = Flask(__name__)
@@ -38,6 +42,7 @@ def upload_file(filename):
     try:
         # Security: Prevent path traversal attacks
         if '..' in filename or filename.startswith('/'):
+            logger.warning(f"Path traversal attempt detected: {filename} from {request.remote_addr}")
             raise PathTraversalError(f"Path traversal attempt detected: {filename}")
 
         filepath = os.path.join(UPLOAD_FOLDER, filename)
@@ -46,12 +51,14 @@ def upload_file(filename):
         abs_upload = os.path.abspath(UPLOAD_FOLDER) + os.sep
         abs_filepath = os.path.abspath(filepath)
         if not abs_filepath.startswith(abs_upload):
+            logger.warning(f"Path outside allowed directory: {filename} from {request.remote_addr}")
             raise PathTraversalError(f"Path outside allowed directory: {filename}")
 
         if request.method == 'PUT':
             # PUT: sube datos "raw"
             with open(filepath, 'wb') as f:
                 f.write(request.data)
+            logger.info(f"File {filename} uploaded via PUT from {request.remote_addr}")
             return f'File {filename} uploaded via PUT.', 200
 
         elif request.method == 'POST':
@@ -62,6 +69,7 @@ def upload_file(filename):
             if file.filename == '':
                 return 'No selected file', 400
             file.save(filepath)
+            logger.info(f"File {filename} uploaded via POST from {request.remote_addr}")
             return f'File {filename} uploaded via POST.', 200
 
     except PathTraversalError as e:
@@ -72,6 +80,7 @@ def download_file(filename):
     try:
         # Security: Prevent path traversal attacks
         if '..' in filename or filename.startswith('/'):
+            logger.warning(f"Path traversal attempt detected in download: {filename} from {request.remote_addr}")
             raise PathTraversalError(f"Path traversal attempt detected: {filename}")
 
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
@@ -80,13 +89,16 @@ def download_file(filename):
         abs_download = os.path.abspath(DOWNLOAD_FOLDER) + os.sep
         abs_filepath = os.path.abspath(filepath)
         if not abs_filepath.startswith(abs_download):
+            logger.warning(f"Path outside allowed directory in download: {filename} from {request.remote_addr}")
             raise PathTraversalError(f"Path outside allowed directory: {filename}")
 
+        logger.info(f"File {filename} downloaded by {request.remote_addr}")
         return send_from_directory(DOWNLOAD_FOLDER, filename, as_attachment=True)
 
     except PathTraversalError as e:
         abort(400, str(e))
     except FileNotFoundError:
+        logger.warning(f"File not found for download: {filename}")
         abort(404)
 
 
@@ -235,21 +247,27 @@ def start_listener_route(port):
     try:
         # Security: Validate port range (avoid privileged ports)
         if port < 1024 or port > 65535:
+            logger.warning(f"Invalid port {port} requested from {request.remote_addr}")
             raise InvalidInputError(f"Invalid port {port}: must be between 1024-65535")
 
+        logger.info(f"Starting listener on port {port}")
         conn, ok = start_listener(port)
 
         if not ok or conn is None:
+            logger.error(f"Failed to start listener on port {port}")
             return jsonify({"error": "Failed to start listener"}), 500
 
         ip = conn.rhost
+        logger.info(f"Listener started on port {port}, connection from {ip}")
         return jsonify({"status": "started", "ip": ip}), 200
 
     except InvalidInputError as e:
         return jsonify({"error": str(e)}), 400
     except ListenerStartError as e:
+        logger.error(f"ListenerStartError on port {port}: {e}")
         return jsonify({"error": f"Failed to start listener: {str(e)}"}), 500
     except Exception as e:
+        logger.exception(f"Unexpected error starting listener on port {port}")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
@@ -284,7 +302,8 @@ if __name__ == '__main__':
     host = os.environ.get('FLASK_HOST', '0.0.0.0')
 
     if debug_mode:
-        log.warning("⚠️  Debug mode is ENABLED - do not use in production!")
+        logger.warning("⚠️  Debug mode is ENABLED - do not use in production!")
 
+    logger.info(f"Starting Flask application on {host}:{port}")
     app.run(host=host, port=port, debug=debug_mode)
 
