@@ -162,43 +162,43 @@ def stop_listener() -> None:
             raise ListenerStopError(f"Failed to stop listener: {e}") from e
 
 
-def get_local_md5(local_file: str) -> Optional[str]:
+def get_local_sha256(local_file: str) -> Optional[str]:
     """
-    Calculate MD5 hash of a local file.
+    Calculate SHA256 hash of a local file.
 
     Args:
         local_file: Path to the local file
 
     Returns:
-        MD5 hash as hex string, or None if error
+        SHA256 hash as hex string, or None if error
     """
     try:
         with open(local_file, 'rb') as f:
-            return hashlib.md5(f.read()).hexdigest()
+            return hashlib.sha256(f.read()).hexdigest()
     except Exception as e:
-        log.warning(f"Error calculating local MD5: {e}")
+        log.warning(f"Error calculating local SHA256: {e}")
         return None
 
-def get_remote_md5(path: str) -> Optional[str]:
+def get_remote_sha256(path: str) -> Optional[str]:
     """
-    Calculate MD5 hash of a remote file.
+    Calculate SHA256 hash of a remote file.
 
     Args:
         path: Path to the remote file
 
     Returns:
-        MD5 hash as hex string, or None if error
+        SHA256 hash as hex string, or None if error
     """
     try:
         # Security: Properly escape the path
         escaped_path = shlex.quote(path)
-        conn.sendline(f"md5sum {escaped_path}".encode())
+        conn.sendline(f"sha256sum {escaped_path}".encode())
         conn.recvline(timeout=0.5)
         result = clean_ansi(conn.recvrepeat(1).decode(errors='ignore'))
-        match = re.search(r'^([a-fA-F0-9]{32})', result)
+        match = re.search(r'^([a-fA-F0-9]{64})', result)
         return match.group(1) if match else None
     except Exception as e:
-        log.warning(f"Error calculating remote MD5: {e}")
+        log.warning(f"Error calculating remote SHA256: {e}")
         return None
 
 def send_command(cmd: str) -> Dict[str, Any]:
@@ -214,27 +214,27 @@ def send_command(cmd: str) -> Dict[str, Any]:
     if cmd.startswith("upload "):
         path = cmd.split(" ", 1)[1]
         upload_file(path)
-        local_md5 = get_local_md5(path)
-        remote_md5 = get_remote_md5(os.path.basename(path))
+        local_sha256 = get_local_sha256(path)
+        remote_sha256 = get_remote_sha256(os.path.basename(path))
 
         return {
             "type": "file",
             "path": path,
-            "local_md5": local_md5,
-            "remote_md5": remote_md5,
-            "success": local_md5 == remote_md5
+            "local_hash": local_sha256,
+            "remote_hash": remote_sha256,
+            "success": local_sha256 == remote_sha256
         }
 
     elif cmd.startswith("download "):
         path = cmd.split(" ", 1)[1]
-        local_md5, remote_md5 = download_file(path)
+        local_hash, remote_hash = download_file(path)
 
         return {
             "type": "file",
             "path": path,
-            "local_md5": local_md5,
-            "remote_md5": remote_md5,
-            "success": local_md5 == remote_md5
+            "local_hash": local_hash,
+            "remote_hash": remote_hash,
+            "success": local_hash == remote_hash
         }
 
     # Normal command execution
@@ -253,7 +253,7 @@ def upload_file(file_path: str) -> None:
 
     Raises:
         FileUploadError: If file upload fails
-        FileIntegrityError: If MD5 verification fails
+        FileIntegrityError: If SHA256 verification fails
     """
     try:
         with open(file_path, "rb") as f:
@@ -264,18 +264,18 @@ def upload_file(file_path: str) -> None:
         conn.sendline(f"echo {file_data} | base64 -d > {remote_name}".encode())
         log.info(f"Subiendo {file_path}")
 
-        local_md5 = get_local_md5(file_path)
-        remote_md5 = get_remote_md5(os.path.basename(file_path))
+        local_hash = get_local_sha256(file_path)
+        remote_hash = get_remote_sha256(os.path.basename(file_path))
 
-        if local_md5 and remote_md5:
-            log.info(f"\n[+] MD5 local:  {local_md5}")
-            log.info(f"[+] MD5 remoto: {remote_md5}")
+        if local_hash and remote_hash:
+            log.info(f"\n[+] SHA256 local:  {local_hash}")
+            log.info(f"[+] SHA256 remoto: {remote_hash}")
 
-            if local_md5 == remote_md5:
+            if local_hash == remote_hash:
                 log.success("✔️ Integridad verificada: los hashes coinciden.")
             else:
                 log.warning("❌ Advertencia: los hashes NO coinciden. Puede haber corrupción en la transferencia.")
-                raise FileIntegrityError(f"MD5 mismatch for {file_path}: local={local_md5}, remote={remote_md5}")
+                raise FileIntegrityError(f"SHA256 mismatch for {file_path}: local={local_hash}, remote={remote_hash}")
 
     except FileIntegrityError:
         raise
@@ -291,11 +291,11 @@ def download_file(file_path: str) -> Tuple[Optional[str], Optional[str]]:
         file_path: Path to the remote file to download
 
     Returns:
-        Tuple of (local_md5, remote_md5) or (None, None) on error
+        Tuple of (local_sha256, remote_sha256) or (None, None) on error
 
     Raises:
         FileDownloadError: If file download fails
-        FileIntegrityError: If MD5 verification fails
+        FileIntegrityError: If SHA256 verification fails
     """
     try:
         local_file = os.path.join(DOWNLOAD_FOLDER, os.path.basename(file_path))
@@ -325,19 +325,19 @@ def download_file(file_path: str) -> Tuple[Optional[str], Optional[str]]:
             f.write(base64.b64decode(file_data))
 
         log.success(f"Archivo {file_path} descargado.")
-        local_md5 = get_local_md5(local_file)
-        remote_md5 = get_remote_md5(file_path)
+        local_hash = get_local_sha256(local_file)
+        remote_hash = get_remote_sha256(file_path)
 
-        if local_md5 and remote_md5:
-            log.info(f"[+] MD5 local:  {local_md5}")
-            log.info(f"[+] MD5 remoto: {remote_md5}")
+        if local_hash and remote_hash:
+            log.info(f"[+] SHA256 local:  {local_hash}")
+            log.info(f"[+] SHA256 remoto: {remote_hash}")
 
-            if local_md5 == remote_md5:
+            if local_hash == remote_hash:
                 log.success("✔️ Integridad verificada: los hashes coinciden.")
             else:
                 log.warning("❌ Advertencia: los hashes NO coinciden. Puede haber corrupción en la transferencia.")
-                raise FileIntegrityError(f"MD5 mismatch for {file_path}: local={local_md5}, remote={remote_md5}")
-        return local_md5, remote_md5
+                raise FileIntegrityError(f"SHA256 mismatch for {file_path}: local={local_hash}, remote={remote_hash}")
+        return local_hash, remote_hash
 
     except FileIntegrityError:
         raise

@@ -9,6 +9,31 @@ import os
 from typing import Dict, Any
 
 
+def get_or_create_secret_key() -> str:
+    """
+    Get or create persistent SECRET_KEY.
+
+    The secret key is stored in .secret_key file to persist across restarts.
+    If the file doesn't exist, a new random key is generated and saved.
+
+    Returns:
+        Secret key as hex string
+    """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    key_file = os.path.join(base_dir, '.secret_key')
+
+    if os.path.exists(key_file):
+        with open(key_file, 'r') as f:
+            return f.read().strip()
+    else:
+        key = os.urandom(32).hex()
+        with open(key_file, 'w') as f:
+            f.write(key)
+        # Set secure permissions (owner read/write only)
+        os.chmod(key_file, 0o600)
+        return key
+
+
 class Config:
     """Base configuration class with default values."""
 
@@ -19,7 +44,7 @@ class Config:
 
     # Security configuration
     USE_HTTPS = os.environ.get('USE_HTTPS', 'False').lower() in ('true', '1', 'yes')
-    SECRET_KEY = os.environ.get('SECRET_KEY', os.urandom(32).hex())
+    SECRET_KEY = os.environ.get('SECRET_KEY', get_or_create_secret_key())
 
     # File size limits
     MAX_FILE_SIZE = int(os.environ.get('MAX_FILE_SIZE', 100 * 1024 * 1024))  # 100MB
