@@ -16,11 +16,7 @@ DOWNLOAD_FOLDER = os.path.join(BASE_DIR, "downloads")
 
 for folder in (TOOLS_FOLDER, UPLOAD_FOLDER, DOWNLOAD_FOLDER):
     os.makedirs(folder, exist_ok=True)
-try:
-    pass
-except Exception as e:
-    raise e
-clipboard_contents = ["", "", ""]
+clipboards = ["", "", ""]
 
 
 @app.route('/')
@@ -29,8 +25,16 @@ def index():
 
 @app.route('/upload/<path:filename>', methods=['PUT', 'POST'])
 def upload_file(filename):
+    # Security: Prevent path traversal attacks
+    if '..' in filename or filename.startswith('/'):
+        abort(400, 'Invalid filename')
+
     filepath = os.path.join(UPLOAD_FOLDER, filename)
-    
+
+    # Security: Ensure the final path is within UPLOAD_FOLDER
+    if not os.path.abspath(filepath).startswith(os.path.abspath(UPLOAD_FOLDER)):
+        abort(400, 'Invalid path')
+
     if request.method == 'PUT':
         # PUT: sube datos "raw"
         with open(filepath, 'wb') as f:
@@ -49,6 +53,16 @@ def upload_file(filename):
 
 @app.route('/download/<path:filename>', methods=['GET'])
 def download_file(filename):
+    # Security: Prevent path traversal attacks
+    if '..' in filename or filename.startswith('/'):
+        abort(400, 'Invalid filename')
+
+    filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+
+    # Security: Ensure the final path is within DOWNLOAD_FOLDER
+    if not os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER)):
+        abort(400, 'Invalid path')
+
     try:
         return send_from_directory(DOWNLOAD_FOLDER, filename, as_attachment=True)
     except FileNotFoundError:

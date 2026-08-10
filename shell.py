@@ -53,11 +53,11 @@ if __name__ == "__main__":
 
                 elif cmd.startswith("download "):
                     file_path = cmd.split(" ", 1)[1]
-                    download_file(path)
+                    download_file(file_path)
 
                 elif cmd.startswith("upload "):
                     file_path = cmd.split(" ", 1)[1]
-                    upload_file(path)
+                    upload_file(file_path)
 
                 elif cmd.startswith("sudo "):
                     conn.sendline(f"export TERM=xterm; script -qc \"{cmd}\" /dev/null".encode())

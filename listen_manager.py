@@ -177,8 +177,6 @@ def download_file(file_path):
     try:
         local_file = os.path.join(DOWNLOAD_FOLDER, os.path.basename(file_path))
 
-        print("DOWNLOADS")
-        print(local_file)
         conn.sendline(f"base64 {file_path}".encode())
         time.sleep(1)  # Le damos tiempo a la shell remota
 
@@ -202,8 +200,6 @@ def download_file(file_path):
             f.write(base64.b64decode(file_data))
 
         log.success(f"Archivo {file_path} descargado.")
-        print("LOCAL")
-        print(local_file);
         local_md5 = get_local_md5(local_file)
         remote_md5 = get_remote_md5(file_path)
 
@@ -215,7 +211,6 @@ def download_file(file_path):
                 log.success("✔️ Integridad verificada: los hashes coinciden.")
             else:
                 log.warning("❌ Advertencia: los hashes NO coinciden. Puede haber corrupción en la transferencia.")
-        print("OK")
         return local_md5, remote_md5
             
     except base64.binascii.Error as e:

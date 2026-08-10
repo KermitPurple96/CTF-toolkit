@@ -18,7 +18,7 @@ wget https://raw.githubusercontent.com/KermitPurple96/rpcenum/master/rpcenum.sh
 wget https://github.com/the-useless-one/pywerview/archive/refs/tags/v0.6.zip
 
 # pivoting
-https://github.com/andrew-d/static-binaries/raw/master/binaries/linux/x86_64/socat
+wget https://github.com/andrew-d/static-binaries/raw/master/binaries/linux/x86_64/socat
 wget https://github.com/nicocha30/ligolo-ng/releases/download/v0.6.2/ligolo-ng_proxy_0.6.2_linux_amd64.tar.gz
 wget https://github.com/nicocha30/ligolo-ng/releases/download/v0.6.2/ligolo-ng_agent_0.6.2_linux_amd64.tar.gz
 
@@ -98,22 +98,22 @@ wget https://raw.githubusercontent.com/61106960/adPEAS/main/adPEAS.ps1
 wget https://raw.githubusercontent.com/61106960/adPEAS/main/adPEAS-Light.ps1
 
 #view
-https://github.com/tevora-threat/SharpView/blob/master/Compiled/SharpView.exe
+wget https://github.com/tevora-threat/SharpView/raw/master/Compiled/SharpView.exe
 wget https://raw.githubusercontent.com/PowerShellMafia/PowerSploit/dev/Recon/PowerView.ps1
 
 ## HOUNDS
 wget https://raw.githubusercontent.com/BloodHoundAD/BloodHound/master/Collectors/SharpHound.ps1
 wget https://github.com/BloodHoundAD/SharpHound/releases/download/v2.5.1/SharpHound-v2.5.1.zip
-https://github.com/BloodHoundAD/BloodHound/blob/master/Collectors/SharpHound.exe
+wget https://github.com/BloodHoundAD/BloodHound/raw/master/Collectors/SharpHound.exe
 
 ## RCE
-https://github.com/rasta-mouse/MiscTools
-https://github.com/klezVirus/CheeseTools
+git clone https://github.com/rasta-mouse/MiscTools
+git clone https://github.com/klezVirus/CheeseTools
 wget https://raw.githubusercontent.com/HarmJ0y/Misc-PowerShell/master/Invoke-PsExec.ps1
 wget https://raw.githubusercontent.com/dafthack/DomainPasswordSpray/master/DomainPasswordSpray.ps1
 
 # pivoting
-https://sourceforge.net/projects/unix-utils/files/socat/1.7.3.2/socat-1.7.3.2-1-x86_64.zip/download
+wget https://sourceforge.net/projects/unix-utils/files/socat/1.7.3.2/socat-1.7.3.2-1-x86_64.zip/download -O socat-windows.zip
 wget https://github.com/nicocha30/ligolo-ng/releases/download/v0.6.2/ligolo-ng_agent_0.6.2_windows_amd64.zip
 
 #pkinit
