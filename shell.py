@@ -1,4 +1,4 @@
-from listen_manager import start_listener, detect_remote_os, get_clean_response, download_file, upload_file, conn, sigint_handler
+from listen_manager import start_listener, detect_remote_os, get_clean_response, download_file, upload_file, conn, sigint_handler, clean_ansi
 import sys
 import signal
 import threading
@@ -76,9 +76,6 @@ if __name__ == "__main__":
                     output = clean_ansi(conn.recvrepeat(0.5).decode(errors='ignore').strip())
                     if output:
                         print(output)
-
-
-
 
     except ValueError:
         log.error("El puerto debe ser un número entero válido.")

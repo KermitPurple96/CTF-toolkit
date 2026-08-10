@@ -293,8 +293,6 @@ def stop_listener_route():
     return {"status": "stopped"}
 
 
-
-
 if __name__ == '__main__':
     # Security: Never enable debug mode by default in production
     debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
@@ -306,4 +304,3 @@ if __name__ == '__main__':
 
     logger.info(f"Starting Flask application on {host}:{port}")
     app.run(host=host, port=port, debug=debug_mode)
-
