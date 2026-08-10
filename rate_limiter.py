@@ -6,6 +6,7 @@ and DoS attacks without requiring external dependencies.
 """
 
 import time
+import threading
 from collections import defaultdict
 from typing import Dict, Tuple, Optional
 from functools import wraps
@@ -17,12 +18,13 @@ logger = get_logger('rate_limiter')
 
 class RateLimiter:
     """
-    Simple in-memory rate limiter using sliding window algorithm.
+    Thread-safe in-memory rate limiter using sliding window algorithm.
 
     Attributes:
         requests: Dictionary tracking requests per IP
         window_size: Time window in seconds
         max_requests: Maximum requests allowed per window
+        _lock: Threading lock for thread-safety
     """
 
     def __init__(self, window_size: int = 60, max_requests: int = 100):
@@ -38,6 +40,7 @@ class RateLimiter:
         self.max_requests = max_requests
         self._cleanup_interval = 300  # Clean up every 5 minutes
         self._last_cleanup = time.time()
+        self._lock = threading.Lock()  # Thread-safety lock
 
     def _cleanup(self) -> None:
         """Remove old entries to prevent memory growth."""
@@ -68,7 +71,7 @@ class RateLimiter:
 
     def is_allowed(self, ip: str) -> Tuple[bool, Optional[int]]:
         """
-        Check if request from IP is allowed.
+        Check if request from IP is allowed (thread-safe).
 
         Args:
             ip: Client IP address
@@ -76,46 +79,48 @@ class RateLimiter:
         Returns:
             Tuple of (allowed, retry_after_seconds)
         """
-        self._cleanup()
+        with self._lock:
+            self._cleanup()
 
-        current_time = time.time()
-        cutoff_time = current_time - self.window_size
+            current_time = time.time()
+            cutoff_time = current_time - self.window_size
 
-        # Get recent requests from this IP
-        recent_requests = [ts for ts in self.requests[ip] if ts > cutoff_time]
+            # Get recent requests from this IP
+            recent_requests = [ts for ts in self.requests[ip] if ts > cutoff_time]
 
-        if len(recent_requests) >= self.max_requests:
-            # Calculate when the oldest request will expire
-            oldest_request = min(recent_requests)
-            retry_after = int(oldest_request + self.window_size - current_time) + 1
+            if len(recent_requests) >= self.max_requests:
+                # Calculate when the oldest request will expire
+                oldest_request = min(recent_requests)
+                retry_after = int(oldest_request + self.window_size - current_time) + 1
 
-            logger.warning(
-                f"Rate limit exceeded for {ip}: "
-                f"{len(recent_requests)}/{self.max_requests} requests in {self.window_size}s"
-            )
+                logger.warning(
+                    f"Rate limit exceeded for {ip}: "
+                    f"{len(recent_requests)}/{self.max_requests} requests in {self.window_size}s"
+                )
 
-            return False, retry_after
+                return False, retry_after
 
-        # Add current request
-        recent_requests.append(current_time)
-        self.requests[ip] = recent_requests
+            # Add current request
+            recent_requests.append(current_time)
+            self.requests[ip] = recent_requests
 
-        return True, None
+            return True, None
 
     def reset(self, ip: Optional[str] = None) -> None:
         """
-        Reset rate limit for an IP or all IPs.
+        Reset rate limit for an IP or all IPs (thread-safe).
 
         Args:
             ip: IP address to reset, or None to reset all
         """
-        if ip:
-            if ip in self.requests:
-                del self.requests[ip]
-                logger.info(f"Reset rate limit for {ip}")
-        else:
-            self.requests.clear()
-            logger.info("Reset rate limit for all IPs")
+        with self._lock:
+            if ip:
+                if ip in self.requests:
+                    del self.requests[ip]
+                    logger.info(f"Reset rate limit for {ip}")
+            else:
+                self.requests.clear()
+                logger.info("Reset rate limit for all IPs")
 
 
 # Global rate limiters for different endpoint categories
