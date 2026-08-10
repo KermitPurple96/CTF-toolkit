@@ -18,31 +18,32 @@ from validators import (
     sanitize_log_message
 )
 from security_headers import configure_security
+from config import Config
+
+# Initialize configuration
+Config.init_app()
 
 # Initialize logger
 logger = get_logger('flask_app')
 
-
+# Create Flask app
 app = Flask(__name__)
 
+# Apply Flask configuration
+Config.init_app(app)
+
 # Configure security headers
-configure_security(app, use_https=False)
+configure_security(app, use_https=Config.USE_HTTPS)
 
-# Configuration
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
-MAX_CLIPBOARD_SIZE = 10 * 1024 * 1024  # 10MB limit
-app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
+# Configuration shortcuts
+MAX_FILE_SIZE = Config.MAX_FILE_SIZE
+MAX_CLIPBOARD_SIZE = Config.MAX_CLIPBOARD_SIZE
+TOOLS_FOLDER = Config.TOOLS_FOLDER
+UPLOAD_FOLDER = Config.UPLOAD_FOLDER
+DOWNLOAD_FOLDER = Config.DOWNLOAD_FOLDER
 
-TOOLS_FOLDER = 'tools'
-UPLOAD_FOLDER = 'uploads'
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DOWNLOAD_FOLDER = os.path.join(BASE_DIR, "downloads")
-
-
-for folder in (TOOLS_FOLDER, UPLOAD_FOLDER, DOWNLOAD_FOLDER):
-    os.makedirs(folder, exist_ok=True)
-clipboards = ["", "", ""]
+# Initialize clipboards
+clipboards = ["" for _ in range(Config.NUM_CLIPBOARDS)]
 
 
 @app.route('/')
@@ -292,13 +293,13 @@ def stop_listener_route():
 
 
 if __name__ == '__main__':
-    # Security: Never enable debug mode by default in production
-    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
-    port = int(os.environ.get('FLASK_PORT', '5000'))
-    host = os.environ.get('FLASK_HOST', '0.0.0.0')
+    # Print configuration
+    if Config.FLASK_DEBUG:
+        Config.print_config()
 
-    if debug_mode:
+    # Security: Never enable debug mode by default in production
+    if Config.FLASK_DEBUG:
         logger.warning("⚠️  Debug mode is ENABLED - do not use in production!")
 
-    logger.info(f"Starting Flask application on {host}:{port}")
-    app.run(host=host, port=port, debug=debug_mode)
+    logger.info(f"Starting Flask application on {Config.FLASK_HOST}:{Config.FLASK_PORT}")
+    app.run(host=Config.FLASK_HOST, port=Config.FLASK_PORT, debug=Config.FLASK_DEBUG)
