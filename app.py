@@ -2,6 +2,12 @@ from flask import Flask, jsonify, request, send_from_directory, abort, render_te
 import os
 import netifaces as ni
 from listen_manager import start_listener, stop_listener, send_command
+from exceptions import (
+    PathTraversalError,
+    FileSizeLimitError,
+    ListenerStartError,
+    InvalidInputError
+)
 
 
 app = Flask(__name__)
@@ -29,50 +35,57 @@ def index():
 
 @app.route('/upload/<path:filename>', methods=['PUT', 'POST'])
 def upload_file(filename):
-    # Security: Prevent path traversal attacks
-    if '..' in filename or filename.startswith('/'):
-        abort(400, 'Invalid filename')
+    try:
+        # Security: Prevent path traversal attacks
+        if '..' in filename or filename.startswith('/'):
+            raise PathTraversalError(f"Path traversal attempt detected: {filename}")
 
-    filepath = os.path.join(UPLOAD_FOLDER, filename)
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
 
-    # Security: Ensure the final path is within UPLOAD_FOLDER
-    abs_upload = os.path.abspath(UPLOAD_FOLDER) + os.sep
-    abs_filepath = os.path.abspath(filepath)
-    if not abs_filepath.startswith(abs_upload):
-        abort(400, 'Invalid path')
+        # Security: Ensure the final path is within UPLOAD_FOLDER
+        abs_upload = os.path.abspath(UPLOAD_FOLDER) + os.sep
+        abs_filepath = os.path.abspath(filepath)
+        if not abs_filepath.startswith(abs_upload):
+            raise PathTraversalError(f"Path outside allowed directory: {filename}")
 
-    if request.method == 'PUT':
-        # PUT: sube datos "raw"
-        with open(filepath, 'wb') as f:
-            f.write(request.data)
-        return f'File {filename} uploaded via PUT.', 200
+        if request.method == 'PUT':
+            # PUT: sube datos "raw"
+            with open(filepath, 'wb') as f:
+                f.write(request.data)
+            return f'File {filename} uploaded via PUT.', 200
 
-    elif request.method == 'POST':
-        # POST: maneja multipart/form-data
-        if 'file' not in request.files:
-            return 'No file part', 400
-        file = request.files['file']
-        if file.filename == '':
-            return 'No selected file', 400
-        file.save(filepath)
-        return f'File {filename} uploaded via POST.', 200
+        elif request.method == 'POST':
+            # POST: maneja multipart/form-data
+            if 'file' not in request.files:
+                return 'No file part', 400
+            file = request.files['file']
+            if file.filename == '':
+                return 'No selected file', 400
+            file.save(filepath)
+            return f'File {filename} uploaded via POST.', 200
+
+    except PathTraversalError as e:
+        abort(400, str(e))
 
 @app.route('/download/<path:filename>', methods=['GET'])
 def download_file(filename):
-    # Security: Prevent path traversal attacks
-    if '..' in filename or filename.startswith('/'):
-        abort(400, 'Invalid filename')
-
-    filepath = os.path.join(DOWNLOAD_FOLDER, filename)
-
-    # Security: Ensure the final path is within DOWNLOAD_FOLDER
-    abs_download = os.path.abspath(DOWNLOAD_FOLDER) + os.sep
-    abs_filepath = os.path.abspath(filepath)
-    if not abs_filepath.startswith(abs_download):
-        abort(400, 'Invalid path')
-
     try:
+        # Security: Prevent path traversal attacks
+        if '..' in filename or filename.startswith('/'):
+            raise PathTraversalError(f"Path traversal attempt detected: {filename}")
+
+        filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+
+        # Security: Ensure the final path is within DOWNLOAD_FOLDER
+        abs_download = os.path.abspath(DOWNLOAD_FOLDER) + os.sep
+        abs_filepath = os.path.abspath(filepath)
+        if not abs_filepath.startswith(abs_download):
+            raise PathTraversalError(f"Path outside allowed directory: {filename}")
+
         return send_from_directory(DOWNLOAD_FOLDER, filename, as_attachment=True)
+
+    except PathTraversalError as e:
+        abort(400, str(e))
     except FileNotFoundError:
         abort(404)
 
@@ -184,18 +197,24 @@ def get_clipboards():
 
 @app.route('/clipboards/<int:index>', methods=['PUT'])
 def update_clipboard(index):
-    if index < 0 or index >= len(clipboards):
-        return jsonify({"error": "Invalid clipboard index"}), 400
+    try:
+        if index < 0 or index >= len(clipboards):
+            raise InvalidInputError(f"Invalid clipboard index: {index}")
 
-    data = request.get_json()
-    content = data.get('content', '')
+        data = request.get_json()
+        content = data.get('content', '')
 
-    # Security: Limit clipboard size
-    if len(content) > MAX_CLIPBOARD_SIZE:
-        return jsonify({"error": "Clipboard content too large"}), 413
+        # Security: Limit clipboard size
+        if len(content) > MAX_CLIPBOARD_SIZE:
+            raise FileSizeLimitError(f"Clipboard content size {len(content)} exceeds limit {MAX_CLIPBOARD_SIZE}")
 
-    clipboards[index] = content
-    return jsonify({"message": "Clipboard updated"})
+        clipboards[index] = content
+        return jsonify({"message": "Clipboard updated"})
+
+    except InvalidInputError as e:
+        return jsonify({"error": str(e)}), 400
+    except FileSizeLimitError as e:
+        return jsonify({"error": str(e)}), 413
 
 @app.route('/ips', methods=['GET'])
 def get_ips():
@@ -213,11 +232,11 @@ def shells():
 
 @app.route("/start_listener/<int:port>")
 def start_listener_route(port):
-    # Security: Validate port range (avoid privileged ports)
-    if port < 1024 or port > 65535:
-        return jsonify({"error": "Invalid port: must be between 1024-65535"}), 400
-
     try:
+        # Security: Validate port range (avoid privileged ports)
+        if port < 1024 or port > 65535:
+            raise InvalidInputError(f"Invalid port {port}: must be between 1024-65535")
+
         conn, ok = start_listener(port)
 
         if not ok or conn is None:
@@ -225,8 +244,13 @@ def start_listener_route(port):
 
         ip = conn.rhost
         return jsonify({"status": "started", "ip": ip}), 200
+
+    except InvalidInputError as e:
+        return jsonify({"error": str(e)}), 400
+    except ListenerStartError as e:
+        return jsonify({"error": f"Failed to start listener: {str(e)}"}), 500
     except Exception as e:
-        return jsonify({"error": f"Error starting listener: {str(e)}"}), 500
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 
 @app.route("/send_command", methods=["POST"])

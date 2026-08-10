@@ -10,6 +10,16 @@ import threading
 import shlex
 from typing import Optional, Tuple, Dict, Any
 
+from exceptions import (
+    ListenerStartError,
+    ListenerStopError,
+    FileUploadError,
+    FileDownloadError,
+    FileIntegrityError,
+    OSDetectionError,
+    CommandExecutionError
+)
+
 
 TOOLS_FOLDER = 'tools'
 UPLOAD_FOLDER = 'uploads'
@@ -75,7 +85,10 @@ def detect_remote_os() -> str:
     Detect the operating system of the remote shell.
 
     Returns:
-        OS name: "Linux", "Windows", "Unknown", or "Error"
+        OS name: "Linux", "Windows", or "Unknown"
+
+    Raises:
+        OSDetectionError: If OS detection fails critically
     """
     try:
         conn.sendline(b"uname")
@@ -94,8 +107,8 @@ def detect_remote_os() -> str:
 
         return "Unknown"
     except Exception as e:
-        log.error(f"Error detecting remote OS: {e}")
-        return "Error"
+        log.warning(f"Error detecting remote OS: {e}")
+        raise OSDetectionError(f"Failed to detect remote OS: {e}") from e
 
 
 
@@ -108,26 +121,36 @@ def start_listener(port: int) -> Tuple[Optional[Any], bool]:
 
     Returns:
         Tuple of (connection object, success status)
+
+    Raises:
+        ListenerStartError: If listener fails to start or bind to port
     """
     global conn, server
-    server = listen(port)
-    log.success(f"Listening on port {port}...")
-    conn = server.wait_for_connection()
+    try:
+        server = listen(port)
+        log.success(f"Listening on port {port}...")
+        conn = server.wait_for_connection()
 
-    if conn:
-        log.success(f"Connection received from {conn.rhost}")
+        if conn:
+            log.success(f"Connection received from {conn.rhost}")
 
-        if threading.current_thread() is threading.main_thread():
-            signal.signal(signal.SIGINT, sigint_handler)
+            if threading.current_thread() is threading.main_thread():
+                signal.signal(signal.SIGINT, sigint_handler)
 
-        return conn, True
+            return conn, True
 
-    return None, False
+        return None, False
+    except Exception as e:
+        log.error(f"Failed to start listener on port {port}: {e}")
+        raise ListenerStartError(f"Failed to start listener on port {port}: {e}") from e
 
 
 def stop_listener() -> None:
     """
     Stop the active listener and close connections.
+
+    Raises:
+        ListenerStopError: If listener fails to stop cleanly
     """
     global conn, server
     if server:
@@ -136,6 +159,7 @@ def stop_listener() -> None:
             log.success("Listener stopped.")
         except Exception as e:
             log.error(f"Error stopping listener: {e}")
+            raise ListenerStopError(f"Failed to stop listener: {e}") from e
 
 
 def get_local_md5(local_file: str) -> Optional[str]:
@@ -228,7 +252,8 @@ def upload_file(file_path: str) -> None:
         file_path: Path to the local file to upload
 
     Raises:
-        Exception: If file upload fails
+        FileUploadError: If file upload fails
+        FileIntegrityError: If MD5 verification fails
     """
     try:
         with open(file_path, "rb") as f:
@@ -250,9 +275,13 @@ def upload_file(file_path: str) -> None:
                 log.success("✔️ Integridad verificada: los hashes coinciden.")
             else:
                 log.warning("❌ Advertencia: los hashes NO coinciden. Puede haber corrupción en la transferencia.")
+                raise FileIntegrityError(f"MD5 mismatch for {file_path}: local={local_md5}, remote={remote_md5}")
 
+    except FileIntegrityError:
+        raise
     except Exception as e:
         log.error(f"Error al subir el archivo: {e}")
+        raise FileUploadError(f"Failed to upload {file_path}: {e}") from e
 
 def download_file(file_path: str) -> Tuple[Optional[str], Optional[str]]:
     """
@@ -265,8 +294,8 @@ def download_file(file_path: str) -> Tuple[Optional[str], Optional[str]]:
         Tuple of (local_md5, remote_md5) or (None, None) on error
 
     Raises:
-        base64.binascii.Error: If base64 decoding fails
-        Exception: If file download fails
+        FileDownloadError: If file download fails
+        FileIntegrityError: If MD5 verification fails
     """
     try:
         local_file = os.path.join(DOWNLOAD_FOLDER, os.path.basename(file_path))
@@ -307,11 +336,14 @@ def download_file(file_path: str) -> Tuple[Optional[str], Optional[str]]:
                 log.success("✔️ Integridad verificada: los hashes coinciden.")
             else:
                 log.warning("❌ Advertencia: los hashes NO coinciden. Puede haber corrupción en la transferencia.")
+                raise FileIntegrityError(f"MD5 mismatch for {file_path}: local={local_md5}, remote={remote_md5}")
         return local_md5, remote_md5
 
+    except FileIntegrityError:
+        raise
     except base64.binascii.Error as e:
         log.error(f"Error al decodificar Base64: {e}")
-        return None, None
+        raise FileDownloadError(f"Failed to decode base64 for {file_path}: {e}") from e
     except Exception as e:
         log.error(f"Error al descargar el archivo: {e}")
-        return None, None
+        raise FileDownloadError(f"Failed to download {file_path}: {e}") from e
