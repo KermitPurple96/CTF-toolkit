@@ -8,6 +8,7 @@ import signal
 import hashlib
 import threading
 import shlex
+from typing import Optional, Tuple, Dict, Any
 
 
 TOOLS_FOLDER = 'tools'
@@ -20,7 +21,16 @@ DOWNLOAD_FOLDER = os.path.join(BASE_DIR, "downloads")
 conn = None
 server = None
 
-def clean_ansi(text):
+def clean_ansi(text: str) -> str:
+    """
+    Remove ANSI escape codes and filter shell prompts from text.
+
+    Args:
+        text: Raw text containing ANSI codes and prompts
+
+    Returns:
+        Cleaned text with ANSI codes and prompts removed
+    """
     ansi_escape = re.compile(r'\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])|\x07|\x0f|\x0e')
     cleaned = ansi_escape.sub('', text)
     prompt_pattern = re.compile(r'^\d+;[a-zA-Z0-9_-]+@[^:]+:.*$')
@@ -32,8 +42,16 @@ def clean_ansi(text):
 
     return '\n'.join(filtered_lines)
 
-def get_clean_response(cmd):
-    """Ejecuta un comando en la shell remota y devuelve la respuesta limpia."""
+def get_clean_response(cmd: str) -> Optional[str]:
+    """
+    Execute a command on the remote shell and return the cleaned response.
+
+    Args:
+        cmd: Command to execute
+
+    Returns:
+        Cleaned response text, or None if no valid response
+    """
     conn.sendline(cmd.encode())
     conn.recvline(timeout=0.5)
     response = conn.recvline(timeout=2).decode(errors='ignore').strip()
@@ -41,14 +59,27 @@ def get_clean_response(cmd):
 
 
 
-def sigint_handler(signum, frame):
+def sigint_handler(signum: int, frame: Any) -> None:
+    """
+    Handle SIGINT signal (Ctrl+C) for graceful shutdown.
+
+    Args:
+        signum: Signal number
+        frame: Current stack frame
+    """
     if conn:
         conn.sendline(b'kill -2 $$')
 
-def detect_remote_os():
+def detect_remote_os() -> str:
+    """
+    Detect the operating system of the remote shell.
+
+    Returns:
+        OS name: "Linux", "Windows", "Unknown", or "Error"
+    """
     try:
         conn.sendline(b"uname")
-        conn.recvline(timeout=0.5) 
+        conn.recvline(timeout=0.5)
         output = clean_ansi(conn.recvrepeat(0.5).decode(errors='ignore').strip())
 
         if output and "linux" in output.lower():
@@ -68,12 +99,21 @@ def detect_remote_os():
 
 
 
-def start_listener(port: int):
+def start_listener(port: int) -> Tuple[Optional[Any], bool]:
+    """
+    Start a listener on the specified port and wait for connection.
+
+    Args:
+        port: Port number to listen on
+
+    Returns:
+        Tuple of (connection object, success status)
+    """
     global conn, server
     server = listen(port)
     log.success(f"Listening on port {port}...")
     conn = server.wait_for_connection()
-    
+
     if conn:
         log.success(f"Connection received from {conn.rhost}")
 
@@ -82,9 +122,13 @@ def start_listener(port: int):
 
         return conn, True
 
+    return None, False
 
 
-def stop_listener():
+def stop_listener() -> None:
+    """
+    Stop the active listener and close connections.
+    """
     global conn, server
     if server:
         try:
@@ -94,15 +138,33 @@ def stop_listener():
             log.error(f"Error stopping listener: {e}")
 
 
-def get_local_md5(local_file):
+def get_local_md5(local_file: str) -> Optional[str]:
+    """
+    Calculate MD5 hash of a local file.
+
+    Args:
+        local_file: Path to the local file
+
+    Returns:
+        MD5 hash as hex string, or None if error
+    """
     try:
         with open(local_file, 'rb') as f:
             return hashlib.md5(f.read()).hexdigest()
     except Exception as e:
-        log.warning(f"Error obteniendo MD5 local: {e}")
+        log.warning(f"Error calculating local MD5: {e}")
         return None
 
-def get_remote_md5(path):
+def get_remote_md5(path: str) -> Optional[str]:
+    """
+    Calculate MD5 hash of a remote file.
+
+    Args:
+        path: Path to the remote file
+
+    Returns:
+        MD5 hash as hex string, or None if error
+    """
     try:
         # Security: Properly escape the path
         escaped_path = shlex.quote(path)
@@ -112,15 +174,23 @@ def get_remote_md5(path):
         match = re.search(r'^([a-fA-F0-9]{32})', result)
         return match.group(1) if match else None
     except Exception as e:
-        log.warning(f"Error obteniendo MD5 remoto: {e}")
+        log.warning(f"Error calculating remote MD5: {e}")
         return None
 
-def send_command(cmd):
+def send_command(cmd: str) -> Dict[str, Any]:
+    """
+    Send a command to the remote shell.
 
+    Args:
+        cmd: Command string to execute
+
+    Returns:
+        Dictionary with command results and metadata
+    """
     if cmd.startswith("upload "):
         path = cmd.split(" ", 1)[1]
         upload_file(path)
-        local_md5 = get_local_md5(path)  # Fixed: was 'local_file'
+        local_md5 = get_local_md5(path)
         remote_md5 = get_remote_md5(os.path.basename(path))
 
         return {
@@ -134,9 +204,6 @@ def send_command(cmd):
     elif cmd.startswith("download "):
         path = cmd.split(" ", 1)[1]
         local_md5, remote_md5 = download_file(path)
-        #local_file = os.path.join(DOWNLOAD_FOLDER, os.path.basename(path))
-        #local_md5 = get_local_md5(local_file)
-        #remote_md5 = get_remote_md5(os.path.basename(path))
 
         return {
             "type": "file",
@@ -146,14 +213,23 @@ def send_command(cmd):
             "success": local_md5 == remote_md5
         }
 
-    # Comando normal
+    # Normal command execution
     conn.sendline(cmd.encode())
     time.sleep(1)
     output = conn.recvrepeat(1).decode(errors='ignore').strip()
     return {"type": "output", "output": clean_ansi(output)}
 
 
-def upload_file(file_path):
+def upload_file(file_path: str) -> None:
+    """
+    Upload a file to the remote shell using base64 encoding.
+
+    Args:
+        file_path: Path to the local file to upload
+
+    Raises:
+        Exception: If file upload fails
+    """
     try:
         with open(file_path, "rb") as f:
             file_data = base64.b64encode(f.read()).decode()
@@ -178,7 +254,20 @@ def upload_file(file_path):
     except Exception as e:
         log.error(f"Error al subir el archivo: {e}")
 
-def download_file(file_path):
+def download_file(file_path: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Download a file from the remote shell using base64 encoding.
+
+    Args:
+        file_path: Path to the remote file to download
+
+    Returns:
+        Tuple of (local_md5, remote_md5) or (None, None) on error
+
+    Raises:
+        base64.binascii.Error: If base64 decoding fails
+        Exception: If file download fails
+    """
     try:
         local_file = os.path.join(DOWNLOAD_FOLDER, os.path.basename(file_path))
 
@@ -219,8 +308,10 @@ def download_file(file_path):
             else:
                 log.warning("❌ Advertencia: los hashes NO coinciden. Puede haber corrupción en la transferencia.")
         return local_md5, remote_md5
-            
+
     except base64.binascii.Error as e:
         log.error(f"Error al decodificar Base64: {e}")
+        return None, None
     except Exception as e:
         log.error(f"Error al descargar el archivo: {e}")
+        return None, None
