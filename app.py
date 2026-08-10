@@ -32,7 +32,9 @@ def upload_file(filename):
     filepath = os.path.join(UPLOAD_FOLDER, filename)
 
     # Security: Ensure the final path is within UPLOAD_FOLDER
-    if not os.path.abspath(filepath).startswith(os.path.abspath(UPLOAD_FOLDER)):
+    abs_upload = os.path.abspath(UPLOAD_FOLDER) + os.sep
+    abs_filepath = os.path.abspath(filepath)
+    if not abs_filepath.startswith(abs_upload):
         abort(400, 'Invalid path')
 
     if request.method == 'PUT':
@@ -60,7 +62,9 @@ def download_file(filename):
     filepath = os.path.join(DOWNLOAD_FOLDER, filename)
 
     # Security: Ensure the final path is within DOWNLOAD_FOLDER
-    if not os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER)):
+    abs_download = os.path.abspath(DOWNLOAD_FOLDER) + os.sep
+    abs_filepath = os.path.abspath(filepath)
+    if not abs_filepath.startswith(abs_download):
         abort(400, 'Invalid path')
 
     try:

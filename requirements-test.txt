@@ -1,0 +1,28 @@
+# Testing dependencies for CTF-toolkit
+
+# Core testing framework
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.1
+pytest-timeout>=2.1.0
+
+# Flask testing
+pytest-flask>=1.2.0
+
+# Code quality
+flake8>=6.0.0
+black>=23.7.0
+isort>=5.12.0
+
+# Security testing
+bandit>=1.7.5
+safety>=2.3.5
+
+# Coverage reporting
+coverage>=7.2.7
+
+# Existing app dependencies
+flask>=2.3.0
+netifaces>=0.11.0
+pwntools>=4.10.0
+watchdog>=3.0.0

@@ -98,7 +98,7 @@ def get_local_md5(local_file):
         with open(local_file, 'rb') as f:
             return hashlib.md5(f.read()).hexdigest()
     except Exception as e:
-        log.error(f"Error obteniendo MD5 local: {e}")
+        log.warning(f"Error obteniendo MD5 local: {e}")
         return None
 
 def get_remote_md5(path):
@@ -109,7 +109,7 @@ def get_remote_md5(path):
         match = re.search(r'^([a-fA-F0-9]{32})', result)
         return match.group(1) if match else None
     except Exception as e:
-        log.error(f"Error obteniendo MD5 remoto: {e}")
+        log.warning(f"Error obteniendo MD5 remoto: {e}")
         return None
 
 def send_command(cmd):
