@@ -11,6 +11,8 @@ resultado sigue siendo un script valido y coherente:
   * no queda ningun nombre viejo suelto en el fichero ofuscado.
 
 Uso:  python3 tests/test_obfuscation.py [--rounds N]
+
+Se prueban los dos frontends: shellpy --obfuscate y PyFuscation.py.
 """
 
 import argparse
@@ -109,9 +111,26 @@ def parseMap(path):
     return mapping
 
 
-def checkRound(mod, target, workdir, baseline, analyzerFile, failures):
+def runPyFuscation(target):
+    # The standalone CLI, which shares the engine with shellpy but has its own
+    # argument handling and output paths.
+    out = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "PyFuscation.py"),
+         "-f", "-v", "-p", "--ps", target],
+        capture_output=True, text=True, timeout=300)
+    m = re.search(r"Obfuscated script located at\s*:\s*(\S+\.ps1)",
+                  re.sub(r"\033\[[0-9;]*m", "", out.stdout))
+    if not m:
+        raise RuntimeError("PyFuscation.py produced no script: " + out.stderr.strip()[:300])
+    return m.group(1)
+
+
+def checkRound(mod, target, workdir, baseline, analyzerFile, failures, engine="shellpy"):
     os.chdir(workdir)
-    outFile = mod.pyfuscate(target, True, True, True, "10.10.14.5", 4444)
+    if engine == "shellpy":
+        outFile = mod.pyfuscate(target, True, True, True, "10.10.14.5", 4444)
+    else:
+        outFile = runPyFuscation(target)
     stem = os.path.splitext(outFile)[0]
 
     with open(outFile, encoding="utf-8", errors="replace") as f:
@@ -120,7 +139,7 @@ def checkRound(mod, target, workdir, baseline, analyzerFile, failures):
         original = f.read()
 
     def fail(msg):
-        failures.append(f"[{target}] {msg}")
+        failures.append(f"[{engine}: {target}] {msg}")
 
     # 1. variables automaticas intactas
     for v in AUTOVARS:
@@ -212,13 +231,15 @@ def main():
             else:
                 baseline[target] = set()
 
-        for target in TARGETS:
-            print(f"\n== {target}: {args.rounds} pasadas")
-            for i in range(args.rounds):
-                before = len(failures)
-                checkRound(mod, target, workdir, baseline[target], analyzerFile, failures)
-                print("  ." if len(failures) == before else "  X", end="", flush=True)
-            print()
+        for engine in ("shellpy", "pyfuscation"):
+            for target in TARGETS:
+                print(f"\n== {engine} / {target}: {args.rounds} pasadas")
+                for i in range(args.rounds):
+                    before = len(failures)
+                    checkRound(mod, target, workdir, baseline[target], analyzerFile,
+                               failures, engine)
+                    print("  ." if len(failures) == before else "  X", end="", flush=True)
+                print()
     finally:
         os.chdir(cwd)
         shutil.rmtree(workdir, ignore_errors=True)

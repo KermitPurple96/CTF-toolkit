@@ -4,7 +4,12 @@
 
 ## Obfuscation
 
-`--obfuscate` renames the variables, parameters and functions of the payload.
+`shellpy --obfuscate` and the standalone `PyFuscation.py` share one engine,
+`psobfuscator.py`. They used to carry a copy each and the copies drifted:
+shellpy's lost the `PSconfig.ini` load, so it renamed the powershell automatic
+variables and the generated scripts died at runtime.
+
+Renaming covers the variables, parameters and functions of the payload.
 Names that powershell resolves itself are left alone, because renaming them is
 what used to make the obfuscated script fail at runtime with *"X is not
 recognized as the name of a cmdlet, function, script file, or operable
