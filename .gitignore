@@ -43,3 +43,10 @@ logs/
 *.tmp
 .temp/
 .secret_key
+
+# Shellpy: obfuscation output dirs (MMDDYYYY_HH_MM_SS) and downloaded payloads
+shellpy/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_*/
+shellpy/tests/.cache/
+shellpy/powercat.ps1
+shellpy/Invoke-PowerShellTcp.ps1
+shellpy/Invoke-ConPtyShell.ps1

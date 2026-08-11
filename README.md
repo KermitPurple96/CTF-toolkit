@@ -123,15 +123,21 @@ toolpy -d rubeus
 
 #### 3. Shellpy (Payload Generator)
 
-Generate obfuscated reverse shell payloads (requires [Shellpy](https://github.com/KermitPurple96/Shellpy)):
+Generate obfuscated reverse shell payloads. Included in `shellpy/`:
 
 ```bash
-shellpy <ip> <port> [options]
+shellpy/shellpy <ip> <port> [options]
 ```
 
 Example:
 ```bash
-shellpy 10.10.10.10 443 -powercat --obfuscate --macro
+shellpy/shellpy 10.10.10.10 443 -powercat --obfuscate --macro
+```
+
+To check that the obfuscator still produces working scripts:
+
+```bash
+python3 shellpy/tests/test_obfuscation.py --rounds 10
 ```
 
 ![Shellpy Example](https://github.com/user-attachments/assets/9bb1efe9-bcaa-49b8-b99b-b865b758eefe)
@@ -288,134 +294,3 @@ The project includes:
 - Input validation
 - Security headers
 - 33 E2E tests (100% passing)
-
-## Security Considerations
-
-### For CTF/Lab Use Only
-
-This toolkit is designed for:
-- CTF competitions
-- Penetration testing labs
-- Security certifications (OSCP, etc.)
-- Authorized security assessments
-
-**⚠️ Security Status:** Moderate Risk - See `CODE_REVIEW_REPORT.md`
-
-**Suitable for:**
-- ✅ CTF competitions
-- ✅ Controlled lab environments
-- ✅ Security training
-
-**NOT suitable for:**
-- ❌ Public internet without authentication
-- ❌ Production environments without hardening
-- ❌ Untrusted networks
-
-### Security Best Practices
-
-1. **Never expose to the internet** - Use only in isolated lab environments
-2. **Set SECRET_KEY** - `export SECRET_KEY="your-secret-key-here"`
-3. **Use HTTPS** - Set `USE_HTTPS=True` when deploying with TLS
-4. **Review logs** - Check `logs/` directory regularly
-5. **Limit access** - Use firewall rules to restrict access
-6. **Check TODO.md** - Review pending security improvements
-
-### Recent Security Improvements (2026-08-11)
-
-- ✅ **Fixed SECRET_KEY regeneration** - Now persists across restarts
-- ✅ **Replaced MD5 with SHA256** - Cryptographically secure hashing
-- ✅ **Thread-safe rate limiter** - No race conditions
-- ✅ **Comprehensive code review** - See `CODE_REVIEW_REPORT.md`
-- 📋 **TODO.md** - Planned improvements for authentication, CSP, input validation
-
-### Known Limitations
-
-See `CODE_REVIEW_REPORT.md` for detailed security analysis including:
-- No authentication/authorization (planned)
-- Command injection vectors in shell operations (to be fixed)
-- Permissive Content Security Policy (requires HTML/JS refactor)
-- See `TODO.md` for complete list of planned improvements
-
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-
-- Add type hints to all functions
-- Include docstrings with Args/Returns/Raises
-- Write tests for new features
-- Follow existing code style
-- Update README for new features
-
-## Testing
-
-The project includes a comprehensive E2E testing suite:
-
-- **33 tests** covering all major functionality
-- Flask endpoint testing
-- File transfer testing
-- Security validation testing
-- Integration testing
-
-Run tests before submitting PRs:
-
-```bash
-python -m pytest tests/ -v
-```
-
-## License
-
-This project is provided for educational and authorized security testing purposes only.
-
-## Credits
-
-- Original author: [@KermitPurple96](https://github.com/KermitPurple96)
-- Recon scripts: [OSCP_AuxReconTools](https://github.com/Daniel10Barredo/OSCP_AuxReconTools)
-- Payload generator: [Shellpy](https://github.com/KermitPurple96/Shellpy)
-
-## Changelog
-
-### Version 2.0 (2026-08-11) - Security Hardening
-
-**New Features:**
-- ✨ Privilege escalation checkers for Linux and Windows
-- ✨ SNMP enumeration automation with community bruteforce
-- ✨ Comprehensive privilege escalation guide (PRIVESC_GUIDE.md)
-- ✨ SNMP enumeration guide with OID reference
-- ✨ Thread-safe rate limiting implementation
-
-**Security Fixes:**
-- 🔒 Fixed SECRET_KEY regeneration issue (now persists)
-- 🔒 Replaced MD5 with SHA256 for file integrity
-- 🔒 Added thread-safety to rate limiter
-- 🔒 Comprehensive security code review completed
-
-**Documentation:**
-- 📚 CODE_REVIEW_REPORT.md - Complete security analysis
-- 📚 TODO.md - Planned improvements and roadmap
-- 📚 Updated README with new features and security status
-
-### Version 1.0 (Previous)
-
-- Type hints and comprehensive docstrings
-- Custom exception hierarchy
-- Centralized configuration system
-- Input validation helpers
-- Security headers middleware
-- Comprehensive logging with rotation
-- E2E test suite (33 tests)
-
-## Support
-
-For issues, questions, or feature requests, please open an issue on GitHub.
-
----
-
-**⚠️ Disclaimer**: This tool is intended for authorized security testing only. Unauthorized access to computer systems is illegal. Use responsibly and only on systems you have permission to test.
