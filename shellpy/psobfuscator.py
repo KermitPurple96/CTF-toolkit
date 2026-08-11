@@ -17,9 +17,7 @@ import configparser
 import os
 import random
 import re
-import shlex
 import string
-import subprocess
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 wordList = os.path.join(current_dir, 'wordList.txt')
@@ -151,25 +149,41 @@ def randomString(taken=None, forbidden=None):
             return candidate
 
 
-def realTimeMuxER(command):
-    p = subprocess.Popen(shlex.split(command), stdout=subprocess.PIPE)
-    while True:
-        output = p.stdout.readline().decode()
-        if output == '' and p.poll() is not None:
-            break
-        if output:
-            print(output.strip())
-    rc = p.poll()
-
-
 def removeJunk(oF):
-    # general cleanup
-    cmd = "sed -i -e \'/<#/,/#>/c\\\\\' " + oF
-    realTimeMuxER(cmd)
-    cmd = "sed -i -e \'s/^[[:space:]]*#.*$//g\' " + oF
-    realTimeMuxER(cmd)
-    cmd = "sed -i \'/^$/d\' " + oF
-    realTimeMuxER(cmd)
+    # Strips <# #> block comments, whole line # comments and empty lines.
+    #
+    # This used to run three `sed -i` commands built by string concatenation
+    # and split with shlex, so it needed GNU sed and broke on any path
+    # containing a space. Same result, no shell.
+    with open(oF, 'r', encoding='utf-8', errors='surrogateescape') as f:
+        data = f.read()
+    # sed leaves a file that ended without a newline exactly as it found it.
+    trailingNewline = data.endswith('\n')
+    lines = data.split('\n')
+
+    kept = []
+    inBlock = False
+    for line in lines:
+        if inBlock:
+            # sed replaced the whole /<#/,/#>/ range, and left the range open
+            # to the end of the file when #> never showed up.
+            if '#>' in line:
+                inBlock = False
+            continue
+        if '<#' in line:
+            if '#>' not in line:
+                inBlock = True
+            continue
+        # A line that is only a comment was blanked and then dropped; a line
+        # of nothing but spaces was not, since sed's /^$/ needs it empty.
+        if re.match(r'^[ \t]*#', line):
+            continue
+        if line == '':
+            continue
+        kept.append(line)
+
+    with open(oF, 'w', encoding='utf-8', errors='surrogateescape') as f:
+        f.write('\n'.join(kept) + ('\n' if kept and trailingNewline else ''))
 
 
 def useSED(DICT, oF):

@@ -37,6 +37,12 @@ TARGETS = {
         "https://raw.githubusercontent.com/antonioCoco/ConPtyShell/master/Invoke-ConPtyShell.ps1",
 }
 
+# Scripts locales. functions.ps1 cubre las formas de declaracion que ninguno
+# de los tres objetivos reales usa, y al ser autonomo se puede ejecutar para
+# comparar su salida antes y despues de ofuscar.
+FIXTURES = ["functions.ps1"]
+EXECUTABLE = {"functions.ps1"}
+
 # Variables automaticas que nunca deben desaparecer del script ofuscado.
 AUTOVARS = [
     "$PSBoundParameters", "$PSCmdlet", "$ExecutionContext", "$MyInvocation",
@@ -49,9 +55,11 @@ param([string]$Path)
 $errors = $null; $tokens = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     (Resolve-Path $Path).Path, [ref]$tokens, [ref]$errors)
+# El AST devuelve "global:Nombre" para una declaracion con calificador de
+# ambito, mientras que la llamada es "Nombre": hay que quitar el prefijo.
 $defs = $ast.FindAll({param($n)
     $n -is [System.Management.Automation.Language.FunctionDefinitionAst]}, $true) |
-    ForEach-Object { $_.Name.ToLower() }
+    ForEach-Object { $_.Name.ToLower() -replace '^(global|script|local|private):', '' }
 $calls = $ast.FindAll({param($n)
     $n -is [System.Management.Automation.Language.CommandAst]}, $true) |
     ForEach-Object { $_.GetCommandName() } | Where-Object { $_ }
@@ -61,6 +69,7 @@ $missing = $calls | Where-Object {
 @{
     parseErrors = @($errors | ForEach-Object { $_.Message })
     missing     = @($missing)
+    defs        = @($defs)
 } | ConvertTo-Json -Compress
 '''
 
@@ -97,6 +106,14 @@ def fetchTargets(workdir):
             print(f"  descargando {name} ...")
             subprocess.run(["curl", "-sSL", "-o", cached, url], check=True)
         shutil.copy(cached, os.path.join(workdir, name))
+    for name in FIXTURES:
+        shutil.copy(os.path.join(HERE, "fixtures", name), os.path.join(workdir, name))
+
+
+def runScript(path):
+    out = subprocess.run(["pwsh", "-NoProfile", "-File", path],
+                         capture_output=True, text=True, timeout=120)
+    return out.stdout.strip(), out.stderr.strip()
 
 
 def parseMap(path):
@@ -125,7 +142,8 @@ def runPyFuscation(target):
     return m.group(1)
 
 
-def checkRound(mod, target, workdir, baseline, analyzerFile, failures, engine="shellpy"):
+def checkRound(mod, target, workdir, baseline, analyzerFile, failures, engine="shellpy",
+               declared=None):
     os.chdir(workdir)
     if engine == "shellpy":
         outFile = mod.pyfuscate(target, True, True, True, "10.10.14.5", 4444)
@@ -161,6 +179,14 @@ def checkRound(mod, target, workdir, baseline, analyzerFile, failures, engine="s
     if clash:
         fail(f"nombre de funcion pisa un cmdlet/alias real: {clash}")
 
+    # 2b. cobertura: toda funcion declarada en el original tiene que haberse
+    # renombrado. Sin esto, un findFUNCs que no detecte nada pasaria el resto
+    # de comprobaciones sin problemas, porque no ofuscar nunca rompe el script.
+    if declared is not None:
+        missed = sorted(declared - {"main"} - set(k.lower() for k in fmap))
+        if missed:
+            fail(f"funciones declaradas que no se renombraron: {missed}")
+
     # 3. ningun nombre viejo suelto (powershell no distingue mayusculas)
     for old in fmap:
         left = re.findall(r"(?<![A-Za-z0-9_-])" + re.escape(old) + r"(?![A-Za-z0-9_-])",
@@ -185,7 +211,17 @@ def checkRound(mod, target, workdir, baseline, analyzerFile, failures, engine="s
         if got < want:
             fail(f"calificador renombrado: ${qualifier}: ({want} -> {got})")
 
-    # 6. el parser de PowerShell
+    # 6. equivalencia funcional: para los fixtures autonomos, el script
+    # ofuscado tiene que imprimir exactamente lo mismo que el original
+    if target in EXECUTABLE and havePwsh():
+        wantOut, _ = runScript(os.path.join(workdir, target))
+        gotOut, gotErr = runScript(outFile)
+        if gotOut != wantOut:
+            fail(f"la salida cambio al ofuscar: {wantOut!r} -> {gotOut!r}")
+        if gotErr:
+            fail(f"el script ofuscado escribio en stderr: {gotErr[:200]}")
+
+    # 7. el parser de PowerShell
     if analyzerFile:
         res = analyze(outFile, analyzerFile)
         if res.get("parseErrors"):
@@ -223,21 +259,24 @@ def main():
         # Baseline: comandos que el original ya deja sin resolver (powercat
         # define varias funciones en runtime con IEX).
         baseline = {}
-        for target in TARGETS:
+        declared = {}
+        for target in list(TARGETS) + FIXTURES:
             path = os.path.join(workdir, target)
             if analyzerFile:
                 res = analyze(path, analyzerFile)
                 baseline[target] = set(n.lower() for n in res.get("missing", []))
+                declared[target] = set(n.lower() for n in res.get("defs", []))
             else:
                 baseline[target] = set()
+                declared[target] = None
 
         for engine in ("shellpy", "pyfuscation"):
-            for target in TARGETS:
+            for target in list(TARGETS) + FIXTURES:
                 print(f"\n== {engine} / {target}: {args.rounds} pasadas")
                 for i in range(args.rounds):
                     before = len(failures)
                     checkRound(mod, target, workdir, baseline[target], analyzerFile,
-                               failures, engine)
+                               failures, engine, declared[target])
                     print("  ." if len(failures) == before else "  X", end="", flush=True)
                 print()
     finally:

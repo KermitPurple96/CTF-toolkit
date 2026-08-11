@@ -25,15 +25,28 @@ Renaming itself is case insensitive and anchored on both sides, matching how
 powershell resolves names: a script declaring `Start-PowerCat` and calling
 `Start-Powercat` is renamed consistently.
 
+Known limitation: renaming also reaches inside string literals. A script that
+prints its own function name, or builds a call out of a string, sees that text
+change too. Powercat relies on this to assemble functions at runtime, so the
+behaviour is kept.
+
 ### Tests
 
 ```bash
 python3 tests/test_obfuscation.py --rounds 10
 ```
 
-Obfuscates powercat, nishang and ConPtyShell repeatedly and checks the result
-with the powershell parser (needs `pwsh`; the rest of the checks still run
-without it). The target scripts are downloaded once into `tests/.cache/`.
+Obfuscates powercat, nishang, ConPtyShell and `tests/fixtures/functions.ps1`
+repeatedly, through both frontends, and checks that:
+
+- every declared function was actually renamed,
+- no old name, variable or parameter is left behind,
+- automatic variables and scope qualifiers are untouched,
+- the powershell parser reports no new errors or unresolved commands,
+- the fixture still prints exactly what it printed before obfuscation.
+
+The parser checks need `pwsh`; the rest run without it. The three remote
+scripts are downloaded once into `tests/.cache/`.
 
 ![shellpy](https://github.com/user-attachments/assets/b8967d23-2f90-4b52-92e9-0068facc9a4b)
 

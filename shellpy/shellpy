@@ -2,22 +2,12 @@
 
 import sys
 import subprocess
-from base64 import b64encode
-import argparse
 import re
 import string
 import random
 import os
-import re
-import ast
 import time
 import shutil
-import random
-import shlex
-import string
-import configparser
-import fileinput
-import banner
 from psobfuscator import (
     printR, printG, printY, printP,
     loadReserved, loadPSCommands, randomString,
