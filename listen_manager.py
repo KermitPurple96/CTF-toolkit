@@ -112,12 +112,13 @@ def detect_remote_os() -> str:
 
 
 
-def start_listener(port: int) -> Tuple[Optional[Any], bool]:
+def start_listener(port: int, mode: str = 'tcp') -> Tuple[Optional[Any], bool]:
     """
     Start a listener on the specified port and wait for connection.
 
     Args:
         port: Port number to listen on
+        mode: 'tcp' for plain TCP, 'ssl' for socat-compatible SSL
 
     Returns:
         Tuple of (connection object, success status)
@@ -127,6 +128,9 @@ def start_listener(port: int) -> Tuple[Optional[Any], bool]:
     """
     global conn, server
     try:
+        if mode == 'ssl':
+            return _start_ssl_listener(port)
+
         server = listen(port)
         log.success(f"Listening on port {port}...")
         conn = server.wait_for_connection()
@@ -143,6 +147,63 @@ def start_listener(port: int) -> Tuple[Optional[Any], bool]:
     except Exception as e:
         log.error(f"Failed to start listener on port {port}: {e}")
         raise ListenerStartError(f"Failed to start listener on port {port}: {e}") from e
+
+
+def _start_ssl_listener(port: int) -> Tuple[Optional[Any], bool]:
+    """Start an SSL/TLS listener compatible with socat OPENSSL connections."""
+    import socket
+    import ssl
+    import tempfile
+    global conn, server
+
+    # Generate self-signed cert
+    cert_dir = tempfile.mkdtemp()
+    cert_file = os.path.join(cert_dir, 'shell.pem')
+    key_file = os.path.join(cert_dir, 'shell.key')
+
+    import subprocess
+    subprocess.run([
+        'openssl', 'req', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', key_file, '-x509', '-days', '1',
+        '-out', cert_file, '-subj', '/CN=localhost'
+    ], capture_output=True, timeout=10)
+
+    # Combine key + cert into PEM
+    pem_file = os.path.join(cert_dir, 'combined.pem')
+    with open(pem_file, 'w') as pem:
+        with open(key_file) as k:
+            pem.write(k.read())
+        with open(cert_file) as c:
+            pem.write(c.read())
+
+    log.success(f"SSL cert generated, listening on port {port}...")
+
+    # Create SSL-wrapped socket
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certfile=pem_file, keyfile=key_file)
+
+    raw_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    raw_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    raw_server.bind(('0.0.0.0', port))
+    raw_server.listen(1)
+
+    ssl_server = context.wrap_socket(raw_server, server_side=True)
+    server = ssl_server
+
+    # Wait for connection
+    client_socket, addr = ssl_server.accept()
+    log.success(f"SSL connection received from {addr[0]}:{addr[1]}")
+
+    # Wrap in a pwntools-compatible tube
+    from pwn import remote
+    # Use remote.fromsocket to get a tube from the raw SSL socket
+    conn = remote.fromsocket(client_socket)
+    conn.rhost = addr[0]
+
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGINT, sigint_handler)
+
+    return conn, True
 
 
 def stop_listener() -> None:

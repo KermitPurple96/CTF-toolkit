@@ -1,0 +1,27 @@
+{
+  "name": "ctf-toolkit",
+  "version": "1.0.0",
+  "description": "> A comprehensive web-based toolkit for CTF challenges and penetration testing certifications",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KermitPurple96/CTF-toolkit.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/KermitPurple96/CTF-toolkit/issues"
+  },
+  "homepage": "https://github.com/KermitPurple96/CTF-toolkit#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}

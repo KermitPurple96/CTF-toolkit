@@ -1,0 +1,175 @@
+<!-- styles in /static/style.css -->
+
+<div id="config-wrapper">
+
+  <!-- Health Status -->
+  <div class="config-section">
+    <h3>System Health <button id="config-refresh-btn" class="btn btn-sm" onclick="loadConfig()">Refresh</button></h3>
+    <div id="health-status"></div>
+  </div>
+
+  <div class="config-grid">
+    <!-- Network -->
+    <div class="config-section">
+      <h3>Network Interfaces</h3>
+      <div id="config-ips"></div>
+    </div>
+
+    <!-- Rate Limits -->
+    <div class="config-section">
+      <h3>Rate Limit Status</h3>
+      <div id="config-ratelimit"></div>
+    </div>
+  </div>
+
+  <!-- Directories -->
+  <div class="config-section">
+    <h3>Directories</h3>
+    <div id="config-dirs"></div>
+  </div>
+
+</div>
+
+<script>
+function initConfiguration() {
+  console.log("[*] Configuration initialized");
+  loadConfig();
+}
+
+function loadConfig() {
+  // Fetch health, IPs, and rate limit status in parallel
+  Promise.all([
+    fetch('/health').then(function(r) { return r.json(); }).catch(function() { return null; }),
+    fetch('/ips').then(function(r) { return r.json(); }).catch(function() { return []; }),
+    fetch('/api/rate_limit_status').then(function(r) { return r.json(); }).catch(function() { return null; })
+  ]).then(function(results) {
+    var health = results[0];
+    var ips = results[1];
+    var rateLimit = results[2];
+
+    if (health) {
+      renderHealth(health);
+      if (health.directories) renderDirs(health.directories);
+    } else {
+      var container = document.getElementById('health-status');
+      while (container.firstChild) container.removeChild(container.firstChild);
+      var msg = document.createElement('div');
+      msg.style.color = 'var(--red)';
+      msg.textContent = 'Failed to load health status';
+      container.appendChild(msg);
+    }
+    renderIPs(ips);
+    renderRateLimit(rateLimit);
+  });
+}
+
+function addConfigRow(container, key, value, cls) {
+  var row = document.createElement('div');
+  row.className = 'config-row';
+
+  var keyEl = document.createElement('span');
+  keyEl.className = 'config-key';
+  keyEl.textContent = key;
+
+  var valEl = document.createElement('span');
+  valEl.className = 'config-val' + (cls ? ' ' + cls : '');
+  valEl.textContent = value;
+
+  row.appendChild(keyEl);
+  row.appendChild(valEl);
+  container.appendChild(row);
+}
+
+function renderHealth(health) {
+  var container = document.getElementById('health-status');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  var statusClass = health.status === 'healthy' ? 'ok' : 'err';
+  var dotClass = health.status === 'healthy' ? 'green' : 'red';
+
+  var statusRow = document.createElement('div');
+  statusRow.className = 'config-row';
+
+  var keyEl = document.createElement('span');
+  keyEl.className = 'config-key';
+  keyEl.textContent = 'Status';
+
+  var valEl = document.createElement('span');
+  valEl.className = 'config-val ' + statusClass;
+
+  var dot = document.createElement('span');
+  dot.className = 'status-dot ' + dotClass;
+  valEl.appendChild(dot);
+  valEl.appendChild(document.createTextNode(health.status.toUpperCase()));
+
+  statusRow.appendChild(keyEl);
+  statusRow.appendChild(valEl);
+  container.appendChild(statusRow);
+
+  addConfigRow(container, 'Version', health.version);
+  addConfigRow(container, 'Python', health.python_version);
+  addConfigRow(container, 'Debug Mode',
+    health.configuration.debug_mode ? 'ON' : 'OFF',
+    health.configuration.debug_mode ? 'warn' : 'ok');
+  addConfigRow(container, 'HTTPS',
+    health.configuration.https_enabled ? 'Enabled' : 'Disabled',
+    health.configuration.https_enabled ? 'ok' : 'warn');
+  addConfigRow(container, 'Max Upload Size', health.configuration.max_file_size_mb + ' MB');
+}
+
+function renderIPs(ips) {
+  var container = document.getElementById('config-ips');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  var list = document.createElement('div');
+  list.className = 'ip-list';
+
+  for (var i = 0; i < ips.length; i++) {
+    var badge = document.createElement('div');
+    badge.className = 'ip-badge';
+    badge.textContent = ips[i];
+    badge.setAttribute('data-ip', ips[i]);
+    badge.onclick = function() {
+      navigator.clipboard.writeText(this.getAttribute('data-ip'));
+      this.style.borderColor = '#0f0';
+      var self = this;
+      setTimeout(function() { self.style.borderColor = '#444'; }, 1000);
+    };
+    list.appendChild(badge);
+  }
+
+  container.appendChild(list);
+}
+
+function renderRateLimit(rateLimit) {
+  var container = document.getElementById('config-ratelimit');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  if (!rateLimit) {
+    var msg = document.createElement('div');
+    msg.style.color = '#888';
+    msg.textContent = 'Rate limit data unavailable';
+    container.appendChild(msg);
+    return;
+  }
+
+  var keys = Object.keys(rateLimit);
+  for (var i = 0; i < keys.length; i++) {
+    var val = rateLimit[keys[i]];
+    addConfigRow(container, keys[i], typeof val === 'object' ? JSON.stringify(val) : String(val));
+  }
+}
+
+function renderDirs(dirs) {
+  var container = document.getElementById('config-dirs');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  var dirNames = Object.keys(dirs);
+  for (var i = 0; i < dirNames.length; i++) {
+    var exists = dirs[dirNames[i]];
+    addConfigRow(container, dirNames[i] + '/',
+      exists ? 'OK' : 'MISSING',
+      exists ? 'ok' : 'err');
+  }
+}
+</script>

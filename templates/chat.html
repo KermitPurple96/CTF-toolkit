@@ -1,0 +1,421 @@
+<!-- styles in /static/style.css -->
+
+<div id="chat-wrapper">
+  <div id="chat-sidebar">
+    <div class="chat-sidebar-header">
+      <h3>Channels</h3>
+      <button class="btn btn-sm" onclick="showNewChannelDialog()">+</button>
+    </div>
+    <div id="chat-channels"></div>
+
+    <div id="new-channel-dialog" style="display:none;">
+      <div class="chat-dialog-tabs">
+        <span class="chat-dtab active" id="dtab-chat" onclick="switchDialogTab('chat')">Chat</span>
+        <span class="chat-dtab" id="dtab-group" onclick="switchDialogTab('group')">Group</span>
+      </div>
+      <input type="text" id="new-channel-name" placeholder="Name..." style="display:none;" />
+      <div id="user-picker" class="user-picker"></div>
+      <div class="chat-dialog-btns">
+        <button class="btn btn-sm btn-primary" id="create-channel-btn" onclick="createChannel()">Create</button>
+        <button class="btn btn-sm" onclick="hideNewChannelDialog()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="chat-online">
+      <div class="chat-online-header">Online</div>
+      <div id="chat-online-users"></div>
+    </div>
+  </div>
+
+  <div id="chat-main">
+    <div id="chat-header">
+      <span id="chat-header-title"></span>
+      <button class="btn btn-sm" id="chat-edit-group-btn" style="display:none;" onclick="showEditGroup()">Edit</button>
+    </div>
+    <div id="chat-messages"></div>
+    <div id="chat-input-bar">
+      <input type="text" id="chat-input" placeholder="Type a message..." autocomplete="off" />
+      <button class="btn btn-primary" id="chat-send">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit group modal -->
+<div id="edit-group-overlay" style="display:none;">
+  <div class="login-box" style="width:300px;text-align:left;">
+    <h3>Edit Group</h3>
+    <input type="text" id="edit-group-name" placeholder="Group name..." style="width:100%;margin-bottom:8px;" />
+    <div id="edit-group-users" class="user-picker"></div>
+    <div class="chat-dialog-btns" style="margin-top:10px;">
+      <button class="btn btn-sm btn-primary" onclick="saveEditGroup()">Save</button>
+      <button class="btn btn-sm" onclick="hideEditGroup()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var chatData = { channels: [], activeId: null };
+var allUsers = [];
+var dialogMode = 'chat';
+
+function initChat() {
+  loadChatData();
+  fetchUsers();
+
+  if (chatData.channels.length === 0) {
+    chatData.channels.push(
+      { id: genId(), name: 'General', type: 'group', members: [], messages: [] }
+    );
+    chatData.activeId = chatData.channels[0].id;
+    persistChatData();
+  }
+
+  if (!chatData.activeId && chatData.channels.length > 0) {
+    chatData.activeId = chatData.channels[0].id;
+  }
+
+  renderChannels();
+  renderChat();
+
+  document.getElementById('chat-send').onclick = sendMessage;
+  document.getElementById('chat-input').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') sendMessage();
+  });
+
+  // Refresh users periodically
+  setInterval(fetchUsers, 10000);
+}
+
+function genId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
+
+function fetchUsers() {
+  fetch('/api/users').then(function(r) { return r.json(); }).then(function(users) {
+    allUsers = users;
+    renderOnlineUsers();
+  });
+}
+
+function renderOnlineUsers() {
+  var container = document.getElementById('chat-online-users');
+  while (container.firstChild) container.removeChild(container.firstChild);
+  allUsers.forEach(function(u) {
+    var el = document.createElement('div');
+    el.className = 'chat-online-user';
+    el.textContent = u;
+    if (u === ctfUsername) el.style.fontWeight = '600';
+    container.appendChild(el);
+  });
+}
+
+function loadChatData() {
+  try {
+    var stored = localStorage.getItem('ctf-chat-v2');
+    if (stored) {
+      chatData = JSON.parse(stored);
+      // Ensure members array exists on all channels
+      chatData.channels.forEach(function(ch) {
+        if (!ch.members) ch.members = [];
+      });
+    } else {
+      var old = localStorage.getItem('ctf-chat');
+      if (old) {
+        var oldMsgs = JSON.parse(old);
+        chatData = { channels: [{ id: genId(), name: 'General', type: 'group', members: [], messages: oldMsgs }], activeId: null };
+        chatData.activeId = chatData.channels[0].id;
+        localStorage.removeItem('ctf-chat');
+      } else {
+        chatData = { channels: [], activeId: null };
+      }
+    }
+  } catch(e) { chatData = { channels: [], activeId: null }; }
+}
+
+function persistChatData() {
+  localStorage.setItem('ctf-chat-v2', JSON.stringify(chatData));
+}
+
+function getActive() {
+  return chatData.channels.find(function(c) { return c.id === chatData.activeId; });
+}
+
+function selectChannel(id) {
+  chatData.activeId = id;
+  persistChatData();
+  renderChannels();
+  renderChat();
+  document.getElementById('chat-input').focus();
+}
+
+function renderChannels() {
+  var container = document.getElementById('chat-channels');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  chatData.channels.forEach(function(ch) {
+    var item = document.createElement('div');
+    item.className = 'chat-channel' + (ch.id === chatData.activeId ? ' active' : '');
+
+    var icon = document.createElement('span');
+    icon.className = 'chat-channel-icon';
+    icon.textContent = ch.type === 'group' ? '#' : '@';
+
+    var name = document.createElement('span');
+    name.className = 'chat-channel-name';
+    name.textContent = ch.name;
+
+    var count = document.createElement('span');
+    count.className = 'chat-channel-count';
+    count.textContent = ch.messages.length > 0 ? ch.messages.length : '';
+
+    var del = document.createElement('span');
+    del.className = 'chat-channel-del';
+    del.textContent = '\u00d7';
+    del.setAttribute('data-id', ch.id);
+    del.onclick = function(e) {
+      e.stopPropagation();
+      deleteChannel(this.getAttribute('data-id'));
+    };
+
+    item.setAttribute('data-id', ch.id);
+    item.onclick = function() { selectChannel(this.getAttribute('data-id')); };
+
+    item.appendChild(icon);
+    item.appendChild(name);
+    item.appendChild(count);
+    item.appendChild(del);
+    container.appendChild(item);
+  });
+}
+
+function renderChat() {
+  var ch = getActive();
+  var titleEl = document.getElementById('chat-header-title');
+  var editBtn = document.getElementById('chat-edit-group-btn');
+  var container = document.getElementById('chat-messages');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  if (!ch) {
+    titleEl.textContent = '';
+    editBtn.style.display = 'none';
+    var empty = document.createElement('div');
+    empty.className = 'chat-empty';
+    empty.textContent = 'Create a channel to start.';
+    container.appendChild(empty);
+    return;
+  }
+
+  titleEl.textContent = (ch.type === 'group' ? '# ' : '@ ') + ch.name;
+  editBtn.style.display = ch.type === 'group' ? '' : 'none';
+
+  if (ch.messages.length === 0) {
+    var empty2 = document.createElement('div');
+    empty2.className = 'chat-empty';
+    empty2.textContent = 'No messages in ' + ch.name + '.';
+    container.appendChild(empty2);
+  } else {
+    ch.messages.forEach(function(msg, idx) {
+      var bubble = document.createElement('div');
+      bubble.className = 'chat-bubble';
+      if (msg.from && msg.from !== ctfUsername) {
+        bubble.classList.add('chat-bubble-other');
+      }
+
+      if (msg.from) {
+        var author = document.createElement('div');
+        author.className = 'chat-author';
+        author.textContent = msg.from;
+        bubble.appendChild(author);
+      }
+
+      var text = document.createElement('div');
+      text.className = 'chat-text';
+      text.textContent = msg.text;
+
+      var meta = document.createElement('div');
+      meta.className = 'chat-meta';
+
+      var time = document.createElement('span');
+      var d = new Date(msg.time);
+      time.textContent = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+
+      var del = document.createElement('span');
+      del.className = 'chat-delete';
+      del.textContent = 'delete';
+      del.setAttribute('data-idx', idx);
+      del.onclick = function() {
+        ch.messages.splice(parseInt(this.getAttribute('data-idx')), 1);
+        persistChatData();
+        renderChat();
+      };
+
+      meta.appendChild(time);
+      meta.appendChild(del);
+      bubble.appendChild(text);
+      bubble.appendChild(meta);
+      container.appendChild(bubble);
+    });
+  }
+
+  container.scrollTop = container.scrollHeight;
+}
+
+function sendMessage() {
+  var ch = getActive();
+  if (!ch) return;
+  var input = document.getElementById('chat-input');
+  var text = input.value.trim();
+  if (!text) return;
+
+  ch.messages.push({ text: text, from: ctfUsername, time: new Date().toISOString() });
+  persistChatData();
+  input.value = '';
+  renderChat();
+  renderChannels();
+}
+
+/* ===== New channel dialog ===== */
+function switchDialogTab(mode) {
+  dialogMode = mode;
+  document.getElementById('dtab-chat').classList.toggle('active', mode === 'chat');
+  document.getElementById('dtab-group').classList.toggle('active', mode === 'group');
+  document.getElementById('new-channel-name').style.display = mode === 'group' ? '' : 'none';
+  renderUserPicker();
+}
+
+function showNewChannelDialog() {
+  document.getElementById('new-channel-dialog').style.display = 'block';
+  dialogMode = 'chat';
+  switchDialogTab('chat');
+  fetchUsers();
+  setTimeout(renderUserPicker, 200);
+}
+
+function hideNewChannelDialog() {
+  document.getElementById('new-channel-dialog').style.display = 'none';
+}
+
+function renderUserPicker() {
+  var container = document.getElementById('user-picker');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  var others = allUsers.filter(function(u) { return u !== ctfUsername; });
+  if (others.length === 0) {
+    var msg = document.createElement('div');
+    msg.style.cssText = 'color:var(--text-muted);font-size:11px;padding:6px 0;';
+    msg.textContent = 'No other users online';
+    container.appendChild(msg);
+    return;
+  }
+
+  others.forEach(function(u) {
+    var row = document.createElement('label');
+    row.className = 'user-pick-row';
+
+    var cb = document.createElement('input');
+    cb.type = dialogMode === 'chat' ? 'radio' : 'checkbox';
+    cb.name = 'user-pick';
+    cb.value = u;
+
+    var name = document.createElement('span');
+    name.textContent = u;
+
+    row.appendChild(cb);
+    row.appendChild(name);
+    container.appendChild(row);
+  });
+}
+
+function createChannel() {
+  var selected = [];
+  document.querySelectorAll('#user-picker input:checked').forEach(function(cb) {
+    selected.push(cb.value);
+  });
+
+  if (dialogMode === 'chat') {
+    if (selected.length !== 1) return;
+    var target = selected[0];
+    // Check if DM already exists
+    var existing = chatData.channels.find(function(c) {
+      return c.type === 'individual' && c.members && c.members.length === 1 && c.members[0] === target;
+    });
+    if (existing) {
+      selectChannel(existing.id);
+      hideNewChannelDialog();
+      return;
+    }
+    var ch = { id: genId(), name: target, type: 'individual', members: [target], messages: [] };
+  } else {
+    var gname = document.getElementById('new-channel-name').value.trim();
+    if (!gname) return;
+    selected.push(ctfUsername); // include self
+    var ch = { id: genId(), name: gname, type: 'group', members: selected, messages: [] };
+  }
+
+  chatData.channels.push(ch);
+  chatData.activeId = ch.id;
+  persistChatData();
+  hideNewChannelDialog();
+  renderChannels();
+  renderChat();
+}
+
+function deleteChannel(id) {
+  chatData.channels = chatData.channels.filter(function(c) { return c.id !== id; });
+  if (chatData.activeId === id) {
+    chatData.activeId = chatData.channels.length > 0 ? chatData.channels[0].id : null;
+  }
+  persistChatData();
+  renderChannels();
+  renderChat();
+}
+
+/* ===== Edit group ===== */
+function showEditGroup() {
+  var ch = getActive();
+  if (!ch || ch.type !== 'group') return;
+
+  document.getElementById('edit-group-overlay').style.display = 'flex';
+  document.getElementById('edit-group-name').value = ch.name;
+
+  var container = document.getElementById('edit-group-users');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  allUsers.forEach(function(u) {
+    var row = document.createElement('label');
+    row.className = 'user-pick-row';
+
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = u;
+    cb.checked = ch.members.indexOf(u) !== -1 || u === ctfUsername;
+
+    var name = document.createElement('span');
+    name.textContent = u;
+
+    row.appendChild(cb);
+    row.appendChild(name);
+    container.appendChild(row);
+  });
+}
+
+function hideEditGroup() {
+  document.getElementById('edit-group-overlay').style.display = 'none';
+}
+
+function saveEditGroup() {
+  var ch = getActive();
+  if (!ch) return;
+
+  ch.name = document.getElementById('edit-group-name').value.trim() || ch.name;
+  var members = [];
+  document.querySelectorAll('#edit-group-users input:checked').forEach(function(cb) {
+    members.push(cb.value);
+  });
+  if (members.indexOf(ctfUsername) === -1) members.push(ctfUsername);
+  ch.members = members;
+
+  persistChatData();
+  hideEditGroup();
+  renderChannels();
+  renderChat();
+}
+</script>

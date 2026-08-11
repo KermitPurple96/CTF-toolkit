@@ -1,160 +1,177 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CTF Helper</title>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: monospace;
-    }
-
-    body.dark-mode {
-      background-color: #7d7d7d;
-      color: #eee;
-    }
-
-    body:not(.dark-mode) {
-      background-color: #f0f0f0;
-      color: #111;
-    }
-
-    textarea {
-      background-color: #fff;
-      color: #000;
-      border: 1px solid #ccc;
-    }
-
-    body.dark-mode textarea {
-      background-color: #3c3c3c;
-      color: #f0f0f0;
-      border: 1px solid #444;
-    }
-
-    .toggle-button {
-      position: fixed;
-      width: fit-content;
-      top: 10px;
-      right: 10px;
-      padding: 5px 10px;
-      background-color: #007bff;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      z-index: 1000;
-    }
-
-    body.dark-mode .toggle-button {
-      background-color: #0056b3;
-    }
-
-    nav {
-      background-color: #222;
-      padding: 1em;
-      display: flex;
-      gap: 1em;
-    }
-
-    nav a {
-      color: #0f0;
-      text-decoration: none;
-      cursor: pointer;
-    }
-
-    nav a:hover {
-      text-decoration: underline;
-    }
-
-    #content {
-      padding: 1em;
-      display: flex;
-      height: 90vh;
-      overflow: hidden;
-      width: 90vw;
-    }
-  </style>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="dark-mode">
+<body>
 
-<nav>
-  <a onclick="loadSection('shells')">Shells</a>
-  <a onclick="loadSection('tools')">Tools</a>
-  <a onclick="loadSection('utilities')">Utilities</a>
-  <a onclick="loadSection('Toolkit')">Toolkit</a>
-  <a onclick="loadSection('chat')">Chat</a>
-  <a onclick="loadSection('Configuration')">Configuration</a>
-  
-  <button class="toggle-button" id="toggle-mode">Clear</button>
-</nav>
-
-<div id="content">
-  <h2>Welcome to CTF Helper</h2>
+<!-- Login overlay -->
+<div id="login-overlay">
+  <div class="login-box">
+    <h2>CTF Helper</h2>
+    <p>Enter your username to join</p>
+    <label for="login-username" class="sr-only">Username</label>
+    <input type="text" id="login-username" placeholder="Username" autocomplete="off" maxlength="30" aria-label="Username" />
+    <div id="login-error"></div>
+    <button class="btn btn-primary" id="login-btn">Join</button>
+  </div>
 </div>
 
+<nav style="display:none;" id="main-nav" aria-label="Main navigation">
+  <a href="#" onclick="loadSection('shells'); return false;" id="nav-shells" role="button" tabindex="0">Shells</a>
+  <a href="#" onclick="loadSection('tools'); return false;" id="nav-tools" role="button" tabindex="0">Tools</a>
+  <a href="#" onclick="loadSection('utilities'); return false;" id="nav-utilities" role="button" tabindex="0">Utilities</a>
+  <a href="#" onclick="loadSection('toolkit'); return false;" id="nav-toolkit" role="button" tabindex="0">Toolkit</a>
+  <a href="#" onclick="loadSection('chat'); return false;" id="nav-chat" role="button" tabindex="0">Chat</a>
+  <a href="#" onclick="loadSection('configuration'); return false;" id="nav-configuration" role="button" tabindex="0">Configuration</a>
 
+  <div class="nav-user" id="nav-user"></div>
+
+  <div class="theme-picker">
+    <button class="theme-btn active" data-set-theme="dark" title="Dark"></button>
+    <button class="theme-btn" data-set-theme="light" title="Light"></button>
+    <button class="theme-btn" data-set-theme="dracula" title="Dracula"></button>
+  </div>
+</nav>
+
+<div id="content" style="display:none;">
+  <div class="welcome">
+    <h2>CTF Helper</h2>
+    <p>Select a tab to get started</p>
+  </div>
+</div>
 
 <script>
-function loadSection(section) {
-  if (section === 'shells') {
-    fetch('/shells')
-      .then(response => response.text())
-      .then(html => {
-        const contentDiv = document.getElementById('content');
-        contentDiv.innerHTML = html;
+/* ===== THEME ===== */
+(function() {
+  var saved = localStorage.getItem('ctf-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+  updateThemeButtons(saved);
 
-        const scriptTag = contentDiv.querySelector('script');
-        if (scriptTag) {
-          const newScript = document.createElement('script');
-          newScript.textContent = scriptTag.textContent;
-          document.body.appendChild(newScript);
-        }
+  document.querySelectorAll('.theme-btn').forEach(function(btn) {
+    btn.onclick = function() {
+      var theme = this.getAttribute('data-set-theme');
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('ctf-theme', theme);
+      updateThemeButtons(theme);
+    };
+  });
+})();
 
-        loadShellIps();
-        initShells();
-      })
-      .catch(error => {
-        console.error('Error loading shells:', error);
-        document.getElementById('content').innerHTML = '<p>Error loading shells page.</p>';
-      });
+function updateThemeButtons(active) {
+  document.querySelectorAll('.theme-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.getAttribute('data-set-theme') === active);
+  });
+}
 
-  } else if (section === 'utilities') {
-    document.getElementById('content').innerHTML = `
-      <h2>Utilities</h2>
-      <p>Base64 encoder/decoder, hex converter, and more.</p>
-    `;
-  } else if (section === 'tools') {
-    fetch('/tools')
-      .then(response => response.text())
-      .then(html => {
-        const contentDiv = document.getElementById('content');
-        contentDiv.innerHTML = html;
+/* ===== USER AUTH ===== */
+var ctfUsername = localStorage.getItem('ctf-username') || '';
 
-        const scriptTag = contentDiv.querySelector('script');
-        if (scriptTag) {
-          const newScript = document.createElement('script');
-          newScript.textContent = scriptTag.textContent;
-          document.body.appendChild(newScript);
-        }
+var pingIntervalId = null;
+function showApp() {
+  document.getElementById('login-overlay').style.display = 'none';
+  document.getElementById('main-nav').style.display = '';
+  document.getElementById('content').style.display = '';
+  document.getElementById('nav-user').textContent = ctfUsername;
 
-        initTools();
-      })
-      .catch(error => {
-        console.error('Error loading tools:', error);
-        document.getElementById('content').innerHTML = '<p>Error loading tools page.</p>';
-      });
+  // Ping every 30s to keep user alive (guard against duplicate intervals)
+  if (!pingIntervalId) {
+    pingIntervalId = setInterval(function() {
+      fetch('/api/users/' + encodeURIComponent(ctfUsername) + '/ping', { method: 'POST' });
+    }, 30000);
   }
 }
 
-document.getElementById('toggle-mode').onclick = () => {
-  document.body.classList.toggle('dark-mode');
-  const isDarkMode = document.body.classList.contains('dark-mode');
-  document.getElementById('toggle-mode').textContent = isDarkMode ? 'Clear' : 'Dark';
-};
-</script>
+function doLogin() {
+  var input = document.getElementById('login-username');
+  var name = input.value.trim();
+  var errEl = document.getElementById('login-error');
 
+  if (!name) { errEl.textContent = 'Enter a username'; return; }
+  if (!/^[a-zA-Z0-9_\-]+$/.test(name)) { errEl.textContent = 'Letters, numbers, _ and - only'; return; }
+
+  fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: name })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { errEl.textContent = data.error; return; }
+    ctfUsername = name;
+    localStorage.setItem('ctf-username', name);
+    showApp();
+  });
+}
+
+document.getElementById('login-btn').onclick = doLogin;
+document.getElementById('login-username').addEventListener('keypress', function(e) {
+  if (e.key === 'Enter') doLogin();
+});
+
+// Auto-login if username exists
+if (ctfUsername) {
+  fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: ctfUsername })
+  }).then(function() { showApp(); }).catch(function() {
+    document.getElementById('login-overlay').style.display = '';
+  });
+} else {
+  document.getElementById('login-overlay').style.display = '';
+}
+
+/* ===== NAVIGATION ===== */
+var currentSection = null;
+
+function loadSection(section) {
+  // NOTE: innerHTML is used here intentionally to load trusted server-side
+  // templates from our own Flask backend (same-origin).
+  var initFunctions = {
+    shells: function() { loadShellIps(); initShells(); },
+    tools: function() { initTools(); },
+    utilities: function() { initUtilities(); },
+    toolkit: function() { initToolkit(); },
+    chat: function() { initChat(); },
+    configuration: function() { initConfiguration(); }
+  };
+
+  document.querySelectorAll('nav a').forEach(function(a) { a.classList.remove('active'); });
+  var navLink = document.getElementById('nav-' + section);
+  if (navLink) navLink.classList.add('active');
+  currentSection = section;
+
+  fetch('/' + section)
+    .then(function(response) { return response.text(); })
+    .then(function(html) {
+      var contentDiv = document.getElementById('content');
+      contentDiv.innerHTML = html;
+
+      var scripts = contentDiv.querySelectorAll('script');
+      for (var i = 0; i < scripts.length; i++) {
+        var newScript = document.createElement('script');
+        newScript.textContent = scripts[i].textContent;
+        document.body.appendChild(newScript);
+      }
+
+      if (initFunctions[section]) {
+        initFunctions[section]();
+      }
+    })
+    .catch(function(error) {
+      console.error('Error loading ' + section + ':', error);
+      var contentDiv = document.getElementById('content');
+      var errP = document.createElement('p');
+      errP.textContent = 'Error loading ' + section + ' page.';
+      contentDiv.replaceChildren(errP);
+    });
+}
+</script>
 
 </body>
 </html>
-
