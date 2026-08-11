@@ -132,12 +132,14 @@ shellpy/shellpy <ip> <port> [options]
 Example:
 ```bash
 shellpy/shellpy 10.10.10.10 443 -powercat --obfuscate --macro
+shellpy/shellpy 10.10.10.10 443 -bash --obfuscate
 ```
 
 To check that the obfuscator still produces working scripts:
 
 ```bash
-python3 shellpy/tests/test_obfuscation.py --rounds 10
+python3 shellpy/tests/test_obfuscation.py --rounds 10   # powershell
+python3 shellpy/tests/test_sh_obfuscation.py            # bash y perl
 ```
 
 ![Shellpy Example](https://github.com/user-attachments/assets/9bb1efe9-bcaa-49b8-b99b-b865b758eefe)

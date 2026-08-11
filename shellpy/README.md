@@ -4,6 +4,13 @@
 
 ## Obfuscation
 
+`--obfuscate` works with `-powershell`, `-powercat`, `-nishang`, `-conpty`,
+`-bash` and `-perl`. Powershell goes through `psobfuscator.py`, bash and perl
+through `shobfuscator.py`; the techniques have nothing in common, so the two
+are separate.
+
+### Powershell
+
 `shellpy --obfuscate` and the standalone `PyFuscation.py` share one engine,
 `psobfuscator.py`. They used to carry a copy each and the copies drifted:
 shellpy's lost the `PSconfig.ini` load, so it renamed the powershell automatic
@@ -30,11 +37,35 @@ prints its own function name, or builds a call out of a string, sees that text
 change too. Powercat relies on this to assemble functions at runtime, so the
 behaviour is kept.
 
+### Bash and perl
+
+These payloads are one liners: no functions, no local variables, nothing to
+rename. `shobfuscator.py` re-encodes the command instead, printing every
+variant that applies so you can pick one:
+
+| Technique | Applies to |
+|---|---|
+| `base64` | any payload, the command never appears as text |
+| `hex ANSI-C` | any payload, `bash -c $'\x62\x61…'` |
+| IP in decimal | bash payloads using `/dev/tcp`, which takes an integer host |
+| `${IFS}` for spaces | commands with no quotes or redirections |
+| `eval(pack("H*",…))` | the whole perl script as a hex blob |
+| hex string literals | perl, also renames `$i` and `$p` |
+
+`${IFS}` is restricted on purpose: it expands to space+tab+newline, so next to
+a redirection the target file name comes out wrong and the payload stops
+connecting. Same for single quotes, inside which it does not expand at all.
+
 ### Tests
 
 ```bash
-python3 tests/test_obfuscation.py --rounds 10
+python3 tests/test_obfuscation.py --rounds 10   # powershell
+python3 tests/test_sh_obfuscation.py            # bash y perl
 ```
+
+The bash/perl suite runs every generated variant against a local listener and
+checks it returns a shell: an obfuscated payload that does not connect is
+worthless. Needs `nc` and `perl`.
 
 Obfuscates powercat, nishang, ConPtyShell and `tests/fixtures/functions.ps1`
 repeatedly, through both frontends, and checks that:

